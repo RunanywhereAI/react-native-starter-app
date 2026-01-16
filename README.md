@@ -50,12 +50,33 @@ This app uses three RunAnywhere packages:
 
 ## 🚀 Getting Started
 
+### Quick Start
+
+```bash
+# Clone and install
+git clone https://github.com/RunanywhereAI/react-native-starter-app.git
+cd react-native-starter-app
+npm install
+
+# iOS (requires pod install first)
+cd ios && pod install && cd ..
+npx react-native run-ios
+
+# Android (no additional setup needed)
+npx react-native run-android
+```
+
 ### Prerequisites
 
 - **Node.js** 18 or higher
 - **React Native CLI** development environment ([setup guide](https://reactnative.dev/docs/environment-setup))
 - **iOS:** Xcode 14+, CocoaPods, macOS
-- **Android:** Android Studio, JDK 17+, NDK 27+
+- **Android:** 
+  - Android Studio
+  - JDK 17+
+  - Android SDK 36 (compileSdk)
+  - NDK 27.1.12297006 (install via Android Studio → SDK Manager → SDK Tools → NDK)
+  - Build Tools 36.0.0
 - **Physical device recommended** for best performance (AI models run slowly on simulators)
 
 ### Installation
@@ -79,7 +100,28 @@ This app uses three RunAnywhere packages:
    cd ..
    ```
 
-4. **Run the app**
+4. **Android Setup** (verify your environment)
+   
+   No additional setup is needed if you have Android Studio installed with the required SDK components. To verify:
+   
+   ```bash
+   # Check that ANDROID_HOME is set (should point to your Android SDK)
+   echo $ANDROID_HOME
+   # Expected: /Users/<username>/Library/Android/sdk (macOS) or similar
+   
+   # Verify ADB is available
+   adb --version
+   
+   # Check installed NDK versions (need 27.1.12297006)
+   ls $ANDROID_HOME/ndk/
+   ```
+   
+   If NDK 27 is missing, install it via Android Studio:
+   - Open Android Studio → Settings → SDK Manager → SDK Tools tab
+   - Check "Show Package Details" → expand "NDK (Side by side)"
+   - Select version **27.1.12297006** and click Apply
+
+5. **Run the app**
 
    **For iOS:**
    ```bash
@@ -90,6 +132,31 @@ This app uses three RunAnywhere packages:
    ```bash
    npx react-native run-android
    ```
+
+### Running with Two Terminals (Recommended)
+
+For better control and visibility of logs, run Metro bundler and the app build in separate terminals:
+
+**Terminal 1 - Start Metro Bundler:**
+```bash
+cd react-native-starter-app
+npx react-native start
+```
+
+Wait until you see "Dev server ready", then in a second terminal:
+
+**Terminal 2 - Build & Run the App:**
+```bash
+cd react-native-starter-app
+
+# For iOS
+npx react-native run-ios
+
+# For Android
+npx react-native run-android
+```
+
+> **Note:** The first Android build takes 5-10 minutes as it compiles native C++ code. Subsequent builds are much faster.
 
 ### Running on Physical Android Device
 
@@ -256,6 +323,24 @@ The second run will succeed as codegen completes.
 - Clear cache: `cd android && ./gradlew clean` or `cd ios && rm -rf Pods Podfile.lock`
 - Reinstall dependencies: `rm -rf node_modules && npm install`
 - For iOS: `cd ios && pod install --repo-update`
+- For Android: Delete `android/app/build` and `android/.gradle` folders, then rebuild
+
+### Android NDK not found
+If you see errors about NDK not found:
+```bash
+# Check if NDK 27 is installed
+ls ~/Library/Android/sdk/ndk/
+
+# If missing, install via Android Studio SDK Manager or:
+sdkmanager "ndk;27.1.12297006"
+```
+
+### Android SDK location not found
+Ensure `local.properties` exists in the `android/` folder with your SDK path:
+```properties
+sdk.dir=/Users/<username>/Library/Android/sdk
+```
+This file is auto-generated when you open the project in Android Studio.
 
 ### Patches not applied
 If you see build errors related to `react-native-nitro-modules`, ensure patches are applied:
