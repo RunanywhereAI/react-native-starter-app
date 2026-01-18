@@ -1,4 +1,28 @@
 {
-  "name": "RunAnywhereStarter",
-  "displayName": "RunAnywhere Starter"
+  "expo": {
+    "name": "RunAnywhere Starter",
+    "slug": "runanywhere-starter",
+    "version": "1.0.0",
+    "sdkVersion": "52.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0F172A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.runanywhere.starter"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0F172A"
+      },
+      "package": "dev.runanywhere.starter"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "runanywhere-starter"
+      }
+    }
+  }
 }
