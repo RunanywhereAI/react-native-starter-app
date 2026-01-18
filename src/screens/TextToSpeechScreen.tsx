@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,17 +6,14 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  NativeModules,
 } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
-import RNFS from 'react-native-fs';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as FileSystem from 'expo-file-system';
+import { Audio } from 'expo-av';
 import { RunAnywhere } from '@runanywhere/core';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget } from '../components';
-
-// Native Audio Module for better audio session management
-const { NativeAudioModule } = NativeModules;
 
 const SAMPLE_TEXTS = [
   'Hello! Welcome to RunAnywhere. Experience the power of on-device AI.',
@@ -32,15 +29,23 @@ export const TextToSpeechScreen: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speechRate, setSpeechRate] = useState(1.0);
   const [currentAudioPath, setCurrentAudioPath] = useState<string | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
 
-  // Cleanup on unmount
+  // Setup audio mode and cleanup on unmount
   useEffect(() => {
+    Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+    });
+
     return () => {
-      if (NativeAudioModule && isPlaying) {
-        NativeAudioModule.stopPlayback().catch(() => {});
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
       }
     };
-  }, [isPlaying]);
+  }, []);
 
   const synthesizeAndPlay = async () => {
     if (!text.trim()) {
@@ -64,41 +69,48 @@ export const TextToSpeechScreen: React.FC = () => {
       const wavData = createWavFromBase64Float32(result.audio, result.sampleRate, result.numSamples);
 
       // Save to temporary file
-      const tempPath = `${RNFS.TemporaryDirectoryPath}/tts_output_${Date.now()}.wav`;
-      await RNFS.writeFile(tempPath, wavData, 'base64');
+      const tempPath = `${FileSystem.cacheDirectory}tts_output_${Date.now()}.wav`;
+      await FileSystem.writeAsStringAsync(tempPath, wavData, { encoding: FileSystem.EncodingType.Base64 });
 
       // Verify file was created
-      const exists = await RNFS.exists(tempPath);
-      if (!exists) {
+      const fileInfo = await FileSystem.getInfoAsync(tempPath);
+      if (!fileInfo.exists) {
         throw new Error('Failed to create audio file');
       }
 
-      const fileInfo = await RNFS.stat(tempPath);
       console.log(`[TTS] WAV file created: ${tempPath}, size: ${fileInfo.size} bytes`);
 
       setCurrentAudioPath(tempPath);
       setIsSynthesizing(false);
       setIsPlaying(true);
 
-      // Play using native audio module
-      if (NativeAudioModule) {
-        try {
-          const playResult = await NativeAudioModule.playAudio(tempPath);
-          console.log(`[TTS] Playback started, duration: ${playResult.duration}s`);
-          
-          // Wait for playback to complete (approximate based on duration)
-          setTimeout(() => {
+      // Play using expo-av
+      try {
+        // Unload previous sound if any
+        if (soundRef.current) {
+          await soundRef.current.unloadAsync();
+        }
+
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: tempPath },
+          { shouldPlay: true }
+        );
+        soundRef.current = sound;
+
+        console.log(`[TTS] Playback started with expo-av`);
+
+        // Listen for playback status
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.didJustFinish) {
             setIsPlaying(false);
             setCurrentAudioPath(null);
-            // Clean up file
-            RNFS.unlink(tempPath).catch(() => {});
-          }, (result.duration + 0.5) * 1000);
-        } catch (playError) {
-          console.error('[TTS] Native playback error:', playError);
-          setIsPlaying(false);
-        }
-      } else {
-        console.error('[TTS] NativeAudioModule not available');
+            // Clean up
+            sound.unloadAsync().catch(() => {});
+            FileSystem.deleteAsync(tempPath, { idempotent: true }).catch(() => {});
+          }
+        });
+      } catch (playError) {
+        console.error('[TTS] Playback error:', playError);
         setIsPlaying(false);
       }
     } catch (error) {
@@ -109,9 +121,11 @@ export const TextToSpeechScreen: React.FC = () => {
   };
 
   const stopPlayback = async () => {
-    if (NativeAudioModule) {
+    if (soundRef.current) {
       try {
-        await NativeAudioModule.stopPlayback();
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
       } catch (e) {
         // Ignore
       }
@@ -120,7 +134,7 @@ export const TextToSpeechScreen: React.FC = () => {
     
     // Clean up file
     if (currentAudioPath) {
-      RNFS.unlink(currentAudioPath).catch(() => {});
+      FileSystem.deleteAsync(currentAudioPath, { idempotent: true }).catch(() => {});
       setCurrentAudioPath(null);
     }
   };

@@ -1,12 +1,12 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { RunAnywhere, ModelCategory } from '@runanywhere/core';
 import { LlamaCPP } from '@runanywhere/llamacpp';
-import { ONNX, ModelArtifactType } from '@runanywhere/onnx';
+import { ONNX } from '@runanywhere/onnx';
 
-// Model IDs - matching sample app model registry
-// See: /Users/shubhammalhotra/Desktop/test-fresh/runanywhere-sdks/examples/react-native/RunAnywhereAI/App.tsx
+// Model IDs - matching Flutter starter app model registry
+// Using officially supported models from RunanywhereAI/sherpa-onnx for compatibility
 const MODEL_IDS = {
-  llm: 'lfm2-350m-q8_0', // LiquidAI LFM2 - fast and efficient
+  llm: 'smollm2-360m-instruct-q8_0', // SmolLM2 360M Instruct - small, fast, good for demos
   stt: 'sherpa-onnx-whisper-tiny.en',
   tts: 'vits-piper-en_US-lessac-medium',
 } as const;
@@ -240,43 +240,49 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
 
 /**
  * Register default models with the SDK
- * Models match the sample app: /Users/shubhammalhotra/Desktop/test-fresh/runanywhere-sdks/examples/react-native/RunAnywhereAI/App.tsx
+ * Models match the Flutter starter app exactly for compatibility
+ * Using officially supported models from RunanywhereAI/sherpa-onnx
  */
 export const registerDefaultModels = async () => {
-  // LLM Model - LiquidAI LFM2 350M (fast, efficient, great for mobile)
-  await LlamaCPP.addModel({
-    id: MODEL_IDS.llm,
-    name: 'LiquidAI LFM2 350M Q8_0',
-    url: 'https://huggingface.co/LiquidAI/LFM2-350M-GGUF/resolve/main/LFM2-350M-Q8_0.gguf',
-    memoryRequirement: 400_000_000,
-  });
-  
-  // Also add SmolLM2 as alternative smaller model
-  await LlamaCPP.addModel({
-    id: 'smollm2-360m-q8_0',
-    name: 'SmolLM2 360M Q8_0',
-    url: 'https://huggingface.co/prithivMLmods/SmolLM2-360M-GGUF/resolve/main/SmolLM2-360M.Q8_0.gguf',
-    memoryRequirement: 500_000_000,
-  });
-  
-  // STT Model - Sherpa Whisper Tiny English
-  // Using tar.gz from RunanywhereAI/sherpa-onnx for fast native extraction
-  await ONNX.addModel({
-    id: MODEL_IDS.stt,
-    name: 'Sherpa Whisper Tiny (ONNX)',
-    url: 'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/sherpa-onnx-whisper-tiny.en.tar.gz',
-    modality: ModelCategory.SpeechRecognition,
-    artifactType: ModelArtifactType.TarGzArchive,
-    memoryRequirement: 75_000_000,
-  });
-  
-  // TTS Model - Piper TTS (US English - Medium quality)
-  await ONNX.addModel({
-    id: MODEL_IDS.tts,
-    name: 'Piper TTS (US English - Medium)',
-    url: 'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/vits-piper-en_US-lessac-medium.tar.gz',
-    modality: ModelCategory.SpeechSynthesis,
-    artifactType: ModelArtifactType.TarGzArchive,
-    memoryRequirement: 65_000_000,
-  });
+  try {
+    // LLM Model - SmolLM2 360M Instruct (small, fast, good for demos)
+    // Matching Flutter starter: https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF
+    await LlamaCPP.addModel({
+      id: MODEL_IDS.llm,
+      name: 'SmolLM2 360M Instruct Q8_0',
+      url: 'https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf',
+      memoryRequirement: 400_000_000, // ~400MB
+    });
+    console.log('[ModelService] LLM model registered:', MODEL_IDS.llm);
+  } catch (e: any) {
+    console.warn('[ModelService] Failed to register LLM model:', e.message);
+  }
+
+  try {
+    // STT Model - Whisper Tiny English (fast transcription)
+    // Using tar.gz format from RunanywhereAI for fast native extraction
+    await ONNX.addModel({
+      id: MODEL_IDS.stt,
+      name: 'Sherpa Whisper Tiny (ONNX)',
+      url: 'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/sherpa-onnx-whisper-tiny.en.tar.gz',
+      modality: ModelCategory.SpeechRecognition,
+    });
+    console.log('[ModelService] STT model registered:', MODEL_IDS.stt);
+  } catch (e: any) {
+    console.warn('[ModelService] Failed to register STT model:', e.message);
+  }
+
+  try {
+    // TTS Model - Piper TTS (US English - Medium quality)
+    // Using officially supported Piper model for reliable TTS
+    await ONNX.addModel({
+      id: MODEL_IDS.tts,
+      name: 'Piper TTS (US English - Medium)',
+      url: 'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/vits-piper-en_US-lessac-medium.tar.gz',
+      modality: ModelCategory.SpeechSynthesis,
+    });
+    console.log('[ModelService] TTS model registered:', MODEL_IDS.tts);
+  } catch (e: any) {
+    console.warn('[ModelService] Failed to register TTS model:', e.message);
+  }
 };

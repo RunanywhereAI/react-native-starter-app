@@ -5,18 +5,20 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  NativeModules,
   Alert,
   Platform,
-  PermissionsAndroid,
+  NativeModules,
 } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import { RunAnywhere } from '@runanywhere/core';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget, AudioVisualizer } from '../components';
 
 // Native Audio Module - records in WAV format (16kHz mono) optimal for Whisper STT
+// Available in RunAnywhere AI Studio app
 const { NativeAudioModule } = NativeModules;
 
 export const SpeechToTextScreen: React.FC = () => {
@@ -27,70 +29,168 @@ export const SpeechToTextScreen: React.FC = () => {
   const [transcriptionHistory, setTranscriptionHistory] = useState<string[]>([]);
   const [audioLevel, setAudioLevel] = useState(0);
   const [recordingDuration, setRecordingDuration] = useState(0);
-  const recordingPathRef = useRef<string | null>(null);
+  const recordingRef = useRef<Audio.Recording | null>(null);
   const audioLevelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartRef = useRef<number>(0);
+  const useNativeRecording = useRef<boolean>(false); // Track if using native module
 
-  // Cleanup on unmount
+  // Setup audio mode and cleanup on unmount
   useEffect(() => {
+    // Check if NativeAudioModule is available (in AI Studio app)
+    useNativeRecording.current = !!NativeAudioModule;
+    console.log('[STT] NativeAudioModule available:', useNativeRecording.current);
+    
     return () => {
       if (audioLevelIntervalRef.current) {
         clearInterval(audioLevelIntervalRef.current);
       }
-      if (isRecording && NativeAudioModule) {
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync().catch(() => {});
+      }
+      if (useNativeRecording.current && NativeAudioModule) {
         NativeAudioModule.cancelRecording().catch(() => {});
       }
     };
-  }, [isRecording]);
+  }, []);
 
   const startRecording = async () => {
     try {
-      // Check if native module is available
-      if (!NativeAudioModule) {
-        console.error('[STT] NativeAudioModule not available');
-        Alert.alert('Error', 'Native audio module not available. Please rebuild the app.');
-        return;
-      }
-
-      // Request microphone permission on Android
-      if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-          {
-            title: 'Microphone Permission',
-            message: 'This app needs access to your microphone for speech recognition.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          }
-        );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+      // Check if NativeAudioModule is available (records WAV format)
+      if (NativeAudioModule && Platform.OS === 'android') {
+        console.warn('[STT] Using NativeAudioModule for WAV recording');
+        
+        // Request permission using expo-av (also grants for native)
+        const { granted } = await Audio.requestPermissionsAsync();
+        if (!granted) {
           Alert.alert('Permission Denied', 'Microphone permission is required for speech recognition.');
           return;
         }
+        
+        const result = await NativeAudioModule.startRecording();
+        console.warn('[STT] Native recording started at:', result.path);
+        
+        useNativeRecording.current = true;
+        recordingStartRef.current = Date.now();
+        setIsRecording(true);
+        setTranscription('');
+        setRecordingDuration(0);
+
+        // Poll for audio levels from native module
+        audioLevelIntervalRef.current = setInterval(async () => {
+          try {
+            const levelResult = await NativeAudioModule.getAudioLevel();
+            setAudioLevel(levelResult.level || 0);
+            setRecordingDuration(Date.now() - recordingStartRef.current);
+          } catch (e) {
+            // Ignore errors during polling
+          }
+        }, 100);
+        
+        return;
       }
 
-      console.warn('[STT] Starting native recording...');
-      const result = await NativeAudioModule.startRecording();
+      // Fallback to expo-av recording
+      useNativeRecording.current = false;
       
-      recordingPathRef.current = result.path;
+      // Request permission using expo-av
+      console.warn('[STT] Requesting microphone permission...');
+      const { granted } = await Audio.requestPermissionsAsync();
+      if (!granted) {
+        Alert.alert('Permission Denied', 'Microphone permission is required for speech recognition.');
+        return;
+      }
+
+      // Configure audio mode for recording
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+
+      console.warn('[STT] Starting expo-av recording...');
+      
+      // Create recording optimized for Whisper STT (16kHz mono PCM)
+      const recording = new Audio.Recording();
+      
+      if (Platform.OS === 'ios') {
+        // iOS: Record as WAV with Linear PCM - optimal for Whisper
+        await recording.prepareToRecordAsync({
+          isMeteringEnabled: true,
+          ios: {
+            extension: '.wav',
+            outputFormat: Audio.IOSOutputFormat.LINEARPCM,
+            audioQuality: Audio.IOSAudioQuality.HIGH,
+            sampleRate: 16000,
+            numberOfChannels: 1,
+            bitRate: 256000,
+            linearPCMBitDepth: 16,
+            linearPCMIsBigEndian: false,
+            linearPCMIsFloat: false,
+          },
+          android: {
+            extension: '.m4a',
+            outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+            audioEncoder: Audio.AndroidAudioEncoder.AAC,
+            sampleRate: 16000,
+            numberOfChannels: 1,
+            bitRate: 128000,
+          },
+          web: {
+            mimeType: 'audio/webm',
+            bitsPerSecond: 128000,
+          },
+        });
+      } else {
+        // Android without NativeAudioModule: expo-av can only record compressed formats
+        console.warn('[STT] Android: Recording m4a format (limited STT support without NativeAudioModule)');
+        await recording.prepareToRecordAsync({
+          isMeteringEnabled: true,
+          android: {
+            extension: '.m4a',
+            outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+            audioEncoder: Audio.AndroidAudioEncoder.AAC,
+            sampleRate: 16000,
+            numberOfChannels: 1,
+            bitRate: 128000,
+          },
+          ios: {
+            extension: '.wav',
+            outputFormat: Audio.IOSOutputFormat.LINEARPCM,
+            audioQuality: Audio.IOSAudioQuality.HIGH,
+            sampleRate: 16000,
+            numberOfChannels: 1,
+            bitRate: 256000,
+            linearPCMBitDepth: 16,
+            linearPCMIsBigEndian: false,
+            linearPCMIsFloat: false,
+          },
+          web: {
+            mimeType: 'audio/webm',
+            bitsPerSecond: 128000,
+          },
+        });
+      }
+      
+      await recording.startAsync();
+      recordingRef.current = recording;
       recordingStartRef.current = Date.now();
       setIsRecording(true);
       setTranscription('');
       setRecordingDuration(0);
 
-      // Poll for audio levels
+      // Poll for recording duration
       audioLevelIntervalRef.current = setInterval(async () => {
         try {
-          const levelResult = await NativeAudioModule.getAudioLevel();
-          setAudioLevel(levelResult.level || 0);
           setRecordingDuration(Date.now() - recordingStartRef.current);
+          // Simulate audio level (expo-av doesn't have direct metering access)
+          setAudioLevel(Math.random() * 0.5 + 0.3);
         } catch (e) {
           // Ignore errors during polling
         }
       }, 100);
 
-      console.warn('[STT] Recording started at:', result.path);
+      console.warn('[STT] Recording started');
     } catch (error) {
       console.error('[STT] Recording error:', error);
       Alert.alert('Recording Error', `Failed to start recording: ${error}`);
@@ -105,26 +205,61 @@ export const SpeechToTextScreen: React.FC = () => {
         audioLevelIntervalRef.current = null;
       }
 
-      if (!NativeAudioModule) {
-        throw new Error('NativeAudioModule not available');
-      }
-
-      console.warn('[STT] Stopping recording...');
-      const result = await NativeAudioModule.stopRecording();
       setIsRecording(false);
       setAudioLevel(0);
       setIsTranscribing(true);
 
-      // Get the base64 audio data directly from native module (bypasses RNFS sandbox issues)
-      const audioBase64 = result.audioBase64;
-      if (!audioBase64) {
-        throw new Error('No audio data received from recording');
-      }
+      let audioBase64: string;
+      let filePath: string;
 
-      console.warn('[STT] Recording stopped, audio base64 length:', audioBase64.length, 'file size:', result.fileSize);
+      // Handle NativeAudioModule recording (Android with AI Studio)
+      if (useNativeRecording.current && NativeAudioModule) {
+        console.warn('[STT] Stopping native recording...');
+        const result = await NativeAudioModule.stopRecording();
+        
+        audioBase64 = result.audioBase64;
+        filePath = result.path;
+        
+        console.warn('[STT] Native recording stopped, file:', filePath, 'size:', result.fileSize);
 
-      if (result.fileSize < 1000) {
-        throw new Error('Recording too short - please speak longer');
+        if (result.fileSize < 1000) {
+          throw new Error('Recording too short - please speak longer');
+        }
+      } else {
+        // Handle expo-av recording
+        if (!recordingRef.current) {
+          throw new Error('No active recording');
+        }
+
+        console.warn('[STT] Stopping expo-av recording...');
+        await recordingRef.current.stopAndUnloadAsync();
+        
+        // Reset audio mode
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        });
+
+        // Get the recorded file URI
+        const uri = recordingRef.current.getURI();
+        recordingRef.current = null;
+        
+        if (!uri) {
+          throw new Error('No audio file recorded');
+        }
+
+        filePath = uri;
+
+        // Read the file info
+        const fileInfo = await FileSystem.getInfoAsync(uri);
+        if (!fileInfo.exists || fileInfo.size < 1000) {
+          throw new Error('Recording too short - please speak longer');
+        }
+
+        console.warn('[STT] Recording stopped, file:', uri, 'size:', fileInfo.size);
+        
+        // For expo-av, we'll use transcribeFile
+        audioBase64 = '';
       }
 
       // Check if STT model is loaded
@@ -133,12 +268,41 @@ export const SpeechToTextScreen: React.FC = () => {
         throw new Error('STT model not loaded. Please download and load the model first.');
       }
 
-      // Transcribe using base64 audio data directly from native module
-      console.warn('[STT] Starting transcription...');
-      const transcribeResult = await RunAnywhere.transcribe(audioBase64, {
-        sampleRate: 16000,
-        language: 'en',
-      });
+      let transcribeResult;
+      
+      if (useNativeRecording.current && audioBase64) {
+        // Native recording: use base64 PCM data directly with transcribe()
+        console.warn('[STT] Transcribing with native audio data, base64 length:', audioBase64.length);
+        transcribeResult = await RunAnywhere.transcribe(audioBase64, {
+          sampleRate: 16000,
+          language: 'en',
+        });
+      } else if (Platform.OS === 'ios') {
+        // iOS with expo-av: WAV file - use transcribeFile directly
+        console.warn('[STT] iOS: Transcribing WAV file:', filePath);
+        transcribeResult = await RunAnywhere.transcribeFile(filePath, {
+          language: 'en',
+        });
+      } else {
+        // Android without NativeAudioModule: m4a file - SDK doesn't support
+        console.warn('[STT] Android: Attempting to transcribe m4a file (may have limited support):', filePath);
+        
+        // Strip file:// prefix for Android native code
+        const nativePath = filePath.replace('file://', '');
+        
+        try {
+          transcribeResult = await RunAnywhere.transcribeFile(nativePath, {
+            language: 'en',
+          });
+        } catch (androidError) {
+          console.error('[STT] Android transcription failed:', androidError);
+          throw new Error(
+            'Android STT requires WAV format audio. ' +
+            'expo-av cannot record WAV on Android. ' +
+            'For full Android STT support, use RunAnywhere AI Studio app.'
+          );
+        }
+      }
 
       console.warn('[STT] Transcription result:', transcribeResult);
 
@@ -149,7 +313,8 @@ export const SpeechToTextScreen: React.FC = () => {
         setTranscription('(No speech detected)');
       }
 
-      recordingPathRef.current = null;
+      // Clean up the recorded file
+      FileSystem.deleteAsync(filePath, { idempotent: true }).catch(() => {});
       setIsTranscribing(false);
     } catch (error) {
       console.error('[STT] Transcription error:', error);

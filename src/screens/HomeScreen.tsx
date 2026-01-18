@@ -6,7 +6,7 @@ import {
   StyleSheet,
   StatusBar,
 } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
+import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppColors } from '../theme';
 import { FeatureCard } from '../components';
@@ -102,19 +102,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               <Text style={styles.infoIcon}>🤖</Text>
               <Text style={styles.infoLabel}>LLM</Text>
               <View style={{ flex: 1 }} />
-              <Text style={styles.infoValue}>SmolLM2 360M</Text>
+              <Text style={styles.infoValue}>SmolLM2 360M Instruct</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoIcon}>🎤</Text>
               <Text style={styles.infoLabel}>STT</Text>
               <View style={{ flex: 1 }} />
-              <Text style={styles.infoValue}>Whisper Tiny</Text>
+              <Text style={styles.infoValue}>Whisper Tiny (ONNX)</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoIcon}>🔊</Text>
               <Text style={styles.infoLabel}>TTS</Text>
               <View style={{ flex: 1 }} />
-              <Text style={styles.infoValue}>Piper TTS</Text>
+              <Text style={styles.infoValue}>Piper TTS (US English)</Text>
             </View>
           </View>
         </ScrollView>

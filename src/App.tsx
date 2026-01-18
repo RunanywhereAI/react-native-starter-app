@@ -2,7 +2,6 @@ import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'react-native';
-import { RunAnywhere, SDKEnvironment } from '@runanywhere/core';
 import { ModelServiceProvider, registerDefaultModels } from './services/ModelService';
 import { AppColors } from './theme';
 import {
@@ -21,24 +20,67 @@ const App: React.FC = () => {
     // Initialize SDK
     const initializeSDK = async () => {
       try {
-        // Initialize RunAnywhere SDK (Development mode doesn't require API key)
-        await RunAnywhere.initialize({
-          environment: SDKEnvironment.Development,
-        });
-
-        // Register backends (per docs: https://docs.runanywhere.ai/react-native/quick-start)
-        const { LlamaCPP } = await import('@runanywhere/llamacpp');
-        const { ONNX } = await import('@runanywhere/onnx');
+        console.log('[App] Starting SDK initialization...');
         
-        LlamaCPP.register();
-        ONNX.register();
+        // Try to import and check if native modules are available
+        const core = await import('@runanywhere/core');
+        console.log('[App] @runanywhere/core imported, exports:', Object.keys(core));
+        
+        const { RunAnywhere, SDKEnvironment } = core;
+        
+        // Check if RunAnywhere has the initialize method
+        if (!RunAnywhere || typeof RunAnywhere.initialize !== 'function') {
+          console.warn('[App] RunAnywhere.initialize not available, native module may not be linked');
+          // Continue without initialization - the UI will still work
+          return;
+        }
+
+        // Try to initialize - this may fail if native module isn't properly linked
+        try {
+          await RunAnywhere.initialize({
+            environment: SDKEnvironment.Development,
+          });
+          console.log('[App] RunAnywhere.initialize() succeeded');
+        } catch (initError: any) {
+          console.warn('[App] RunAnywhere.initialize() failed:', initError.message);
+          // Continue anyway - some features may still work
+        }
+
+        // Register backends
+        try {
+          const { LlamaCPP } = await import('@runanywhere/llamacpp');
+          console.log('[App] @runanywhere/llamacpp imported');
+          if (LlamaCPP && typeof LlamaCPP.register === 'function') {
+            LlamaCPP.register();
+            console.log('[App] LlamaCPP.register() called');
+          }
+        } catch (e: any) {
+          console.warn('[App] LlamaCPP registration failed:', e.message);
+        }
+
+        try {
+          const { ONNX } = await import('@runanywhere/onnx');
+          console.log('[App] @runanywhere/onnx imported');
+          if (ONNX && typeof ONNX.register === 'function') {
+            ONNX.register();
+            console.log('[App] ONNX.register() called');
+          }
+        } catch (e: any) {
+          console.warn('[App] ONNX registration failed:', e.message);
+        }
 
         // Register default models
-        await registerDefaultModels();
+        try {
+          await registerDefaultModels();
+          console.log('[App] Default models registered');
+        } catch (e: any) {
+          console.warn('[App] Model registration failed:', e.message);
+        }
 
-        console.log('RunAnywhere SDK initialized successfully');
-      } catch (error) {
-        console.error('Failed to initialize RunAnywhere SDK:', error);
+        console.log('[App] SDK initialization complete');
+      } catch (error: any) {
+        console.error('[App] Failed to initialize RunAnywhere SDK:', error);
+        // Still continue - the UI will load and user can see what features work
       }
     };
 

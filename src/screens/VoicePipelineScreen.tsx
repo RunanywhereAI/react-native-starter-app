@@ -1,32 +1,18 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Platform,
-  NativeModules,
 } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
-import RNFS from 'react-native-fs';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as FileSystem from 'expo-file-system';
+import { Audio } from 'expo-av';
 import { RunAnywhere, VoiceSessionEvent, VoiceSessionHandle } from '@runanywhere/core';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget, AudioVisualizer } from '../components';
-
-// Conditionally import Sound - disabled on iOS via react-native.config.js
-let Sound: any = null;
-if (Platform.OS === 'android') {
-  try {
-    Sound = require('react-native-sound').default;
-  } catch (e) {
-    console.log('react-native-sound not available');
-  }
-}
-
-// iOS uses NativeAudioModule
-const { NativeAudioModule } = NativeModules;
 
 interface ConversationMessage {
   role: 'user' | 'assistant';
@@ -36,7 +22,7 @@ interface ConversationMessage {
 
 // Model IDs - must match those registered in ModelService
 const MODEL_IDS = {
-  llm: 'lfm2-350m-q8_0',
+  llm: 'smollm2-360m-instruct-q8_0',
   stt: 'sherpa-onnx-whisper-tiny.en',
   tts: 'vits-piper-en_US-lessac-medium',
 };
@@ -50,8 +36,24 @@ export const VoicePipelineScreen: React.FC = () => {
   
   // Refs for session and audio
   const sessionRef = useRef<VoiceSessionHandle | null>(null);
-  const currentSoundRef = useRef<any>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
   const isPlayingRef = useRef<boolean>(false);
+
+  // Setup audio mode and cleanup
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+    });
+
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
+      }
+    };
+  }, []);
 
   // Handle voice session events per docs:
   // https://docs.runanywhere.ai/react-native/voice-agent#voicesessionevent
@@ -142,40 +144,39 @@ export const VoicePipelineScreen: React.FC = () => {
     }
   }, []);
 
-  // Play synthesized audio response - platform-specific
+  // Play synthesized audio response using expo-av
   const playResponseAudio = async (base64Audio: string) => {
     try {
-      if (Platform.OS === 'ios' && NativeAudioModule) {
-        // iOS: Use NativeAudioModule
-        isPlayingRef.current = true;
-        setAudioLevel(0.8);
-        await NativeAudioModule.playAudioBase64(base64Audio, 22050);
-        isPlayingRef.current = false;
-        setAudioLevel(0.3);
-      } else if (Platform.OS === 'android' && Sound) {
-        // Android: Use react-native-sound
-        const wavData = createWavFromBase64Float32(base64Audio, 22050);
-        const tempPath = `${RNFS.TemporaryDirectoryPath}/voice_response_${Date.now()}.wav`;
-        await RNFS.writeFile(tempPath, wavData, 'base64');
-
-        const sound = new Sound(tempPath, '', (error: any) => {
-          if (error) {
-            console.error('Failed to load sound:', error);
-            return;
-          }
-          
-          currentSoundRef.current = sound;
-          setAudioLevel(0.8);
-          
-          sound.play((success: boolean) => {
-            sound.release();
-            currentSoundRef.current = null;
-            setAudioLevel(0.3);
-          });
-        });
-      } else {
-        console.warn('No audio playback module available');
+      isPlayingRef.current = true;
+      setAudioLevel(0.8);
+      
+      // Convert base64 float32 PCM to WAV and save to temp file
+      const wavData = createWavFromBase64Float32(base64Audio, 22050);
+      const tempPath = `${FileSystem.cacheDirectory}voice_response_${Date.now()}.wav`;
+      await FileSystem.writeAsStringAsync(tempPath, wavData, { encoding: FileSystem.EncodingType.Base64 });
+      
+      // Unload previous sound if any
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
       }
+
+      // Play using expo-av
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: tempPath },
+        { shouldPlay: true }
+      );
+      soundRef.current = sound;
+
+      // Listen for playback status
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          isPlayingRef.current = false;
+          setAudioLevel(0.3);
+          // Clean up
+          sound.unloadAsync().catch(() => {});
+          FileSystem.deleteAsync(tempPath, { idempotent: true }).catch(() => {});
+        }
+      });
     } catch (error) {
       console.error('Error playing audio:', error);
       isPlayingRef.current = false;
@@ -267,15 +268,12 @@ export const VoicePipelineScreen: React.FC = () => {
 
   const stopVoiceAgent = async () => {
     try {
-      // Stop any playing audio - platform-specific
-      if (Platform.OS === 'ios' && isPlayingRef.current && NativeAudioModule) {
-        await NativeAudioModule.stopPlayback();
+      // Stop any playing audio
+      if (soundRef.current) {
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
         isPlayingRef.current = false;
-      } else if (currentSoundRef.current) {
-        currentSoundRef.current.stop(() => {
-          currentSoundRef.current?.release();
-          currentSoundRef.current = null;
-        });
       }
       
       // Stop the voice session
