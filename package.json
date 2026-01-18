@@ -21,6 +21,7 @@
     "expo": "~52.0.48",
     "expo-asset": "~11.0.5",
     "expo-constants": "~17.0.8",
+    "expo-dev-client": "^6.0.20",
     "expo-device": "~7.0.3",
     "expo-file-system": "~18.0.10",
     "expo-font": "~13.0.4",
