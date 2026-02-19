@@ -3,14 +3,18 @@ import { Alert, Share, Linking, NativeModules, Platform, PermissionsAndroid } fr
 import { launchImageLibrary } from 'react-native-image-picker';
 import { RunAnywhere } from '@runanywhere/core';
 import { indexDocument, searchDocuments, setupDatabase } from '../Database';
-import { performFullGallerySync, loadSavedCursor } from '../utils/GallerySync';
+import { performFullGallerySync, performQuickSync, loadSavedCursor } from '../utils/GallerySync';
 import { buildIndexableContent } from '../utils/TextEnrichment';
+import { useModelService } from '../services/ModelService';
+import { loadSearchHistory, saveSearch, deleteSearchItem, clearSearchHistory, SearchHistoryItem } from '../utils/SearchHistory';
 // Modern ML Kit Import
-import TextRecognition from '@react-native-ml-kit/text-recognition';
+import TextRecognition, { TextRecognitionScript } from '@react-native-ml-kit/text-recognition';
+import { analyzeImage } from '../utils/VisionPipeline';
 
 const { NativeAudioModule } = NativeModules;
 
 export const usePinpointer = () => {
+    const { isSTTLoaded, isSTTLoading, isSTTDownloading, downloadAndLoadSTT } = useModelService();
     // UI & Search State
     const [searchText, setSearchText] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -18,9 +22,13 @@ export const usePinpointer = () => {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [isSearching, setIsSearching] = useState(false);
 
+    // Search History
+    const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
+
     // Sync State
     const [isSyncing, setIsSyncing] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
+    const [isDeepSync, setIsDeepSync] = useState(false);
     const [syncCount, setSyncCount] = useState(0);
     const [totalImages, setTotalImages] = useState(0);
     const cancelRef = useRef<boolean>(false);
@@ -34,6 +42,8 @@ export const usePinpointer = () => {
 
     const audioLevelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const recordingStartRef = useRef<number>(0);
+    const autoStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isRecordingRef = useRef<boolean>(false); // ref so setTimeout sees live value
 
     // --- 1. INITIALIZE DATABASE & AI MODELS ---
     useEffect(() => {
@@ -42,11 +52,9 @@ export const usePinpointer = () => {
                 // Initialize Local Vector DB
                 setupDatabase();
                 setIsDbReady(true);
-
-                // Pre-load Whisper STT Model for instant voice search
+                // Load search history on init
+                setSearchHistory(await loadSearchHistory());
                 console.log("[AI] Warming up STT models...");
-                // loadSTTModel requires a localPath; skip pre-warming here—
-                // the model is loaded on demand via ModelService.
                 setIsModelLoading(false);
             } catch (e) {
                 console.error("Critical Init Failed:", e);
@@ -63,22 +71,43 @@ export const usePinpointer = () => {
         };
     }, []);
 
-    // --- 2. REAL-TIME SEARCH ENGINE ---
+    // --- 2. REAL-TIME SEARCH ENGINE + HISTORY SAVE ---
     useEffect(() => {
         if (!isDbReady) return;
         if (searchText.length > 0) {
-            setSearchResults(searchDocuments(searchText));
+            const results = searchDocuments(searchText);
+            setSearchResults(results);
         } else {
             setSearchResults([]);
         }
     }, [searchText, isDbReady]);
 
+    // Save to history when user stops typing (debounced 800ms)
+    useEffect(() => {
+        if (!searchText.trim() || !isDbReady) return;
+        const timer = setTimeout(async () => {
+            const results = searchDocuments(searchText);
+            await saveSearch(searchText, results.length);
+            setSearchHistory(await loadSearchHistory());
+        }, 800);
+        return () => clearTimeout(timer);
+    }, [searchText, isDbReady]);
+
     // --- 3. SPEECH-TO-TEXT (WHISPER) ---
     const startListening = async () => {
-        if (isModelLoading) {
-            Alert.alert("AI Warming Up", "The STT model is still loading into memory.");
+        // If model is busy, show brief inline feedback via isModelLoading state
+        if (isSTTDownloading || isSTTLoading) {
+            setIsModelLoading(true); // mic shows ⏳ spinner
             return;
         }
+        if (!isSTTLoaded) {
+            // Model isn't loaded — trigger silently in background, no popup
+            setIsModelLoading(true);
+            downloadAndLoadSTT().finally(() => setIsModelLoading(false));
+            return;
+        }
+        setIsModelLoading(false);
+
         try {
             if (!NativeAudioModule) throw new Error('NativeAudioModule not found');
             if (Platform.OS === 'android') {
@@ -87,8 +116,15 @@ export const usePinpointer = () => {
             }
             const result = await NativeAudioModule.startRecording();
             recordingStartRef.current = Date.now();
+            isRecordingRef.current = true;  // sync ref immediately
             setIsRecording(true);
             setSearchText('');
+
+            // Auto-stop after 15 seconds
+            autoStopRef.current = setTimeout(() => {
+                stopListening();
+            }, 15000);
+
             audioLevelIntervalRef.current = setInterval(async () => {
                 try {
                     const levelResult = await NativeAudioModule.getAudioLevel();
@@ -102,8 +138,14 @@ export const usePinpointer = () => {
     };
 
     const stopListening = async () => {
-        // Guard: do nothing if no recording is actually in progress
-        if (!isRecording) return;
+        // Use ref (not state) so setTimeout callback sees the live value
+        if (!isRecordingRef.current) return;
+        isRecordingRef.current = false; // mark stopped immediately
+        // Clear auto-stop timer if user stops manually
+        if (autoStopRef.current) {
+            clearTimeout(autoStopRef.current);
+            autoStopRef.current = null;
+        }
         try {
             if (audioLevelIntervalRef.current) {
                 clearInterval(audioLevelIntervalRef.current);
@@ -141,9 +183,9 @@ export const usePinpointer = () => {
             if (result.assets && result.assets[0].uri) {
                 const imageUri = result.assets[0].uri;
 
-                // Modern ML Kit V2 — detects Latin + Devanagari (Hindi)
-                const visionResult = await TextRecognition.recognize(imageUri);
-                const rawText = visionResult.text;
+                // Sequential vision: OCR first (Latin+Devanagari), labels fallback
+                const vision = await analyzeImage(imageUri);
+                const rawText = vision.content;
 
                 // Enrich: if Hindi detected, LLM adds Hinglish + English keywords
                 const indexableContent = await buildIndexableContent(
@@ -199,6 +241,35 @@ export const usePinpointer = () => {
     };
 
     const handleFullSync = () => runSync(undefined);
+    const handleDeepSync = () => {
+        setIsDeepSync(true);
+        runSync(undefined);
+    };
+
+    const handleQuickSync = async () => {
+        try {
+            if (Platform.OS === 'android') {
+                const permission = Platform.Version >= 33
+                    ? PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES
+                    : PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE;
+                const hasPermission = await PermissionsAndroid.request(permission);
+                if (hasPermission !== PermissionsAndroid.RESULTS.GRANTED) return;
+            }
+            cancelRef.current = false;
+            setIsDeepSync(false);
+            setIsSyncing(true);
+            setIsPaused(false);
+            const { processed } = await performQuickSync(
+                (count) => setSyncCount(count),
+                cancelRef,
+            );
+            setIsSyncing(false);
+            Alert.alert('Quick Sync Done', `Indexed ${processed} recent photos. Run Deep Sync to cover your full library.`);
+        } catch (e) {
+            setIsSyncing(false);
+            Alert.alert('Sync Error', 'Quick sync failed. Please try again.');
+        }
+    };
 
     const handlePauseSync = () => {
         cancelRef.current = true; // signal the sync loop to stop
@@ -209,13 +280,29 @@ export const usePinpointer = () => {
         runSync(cursor);
     };
 
+    // History handlers
+    const handleSelectHistory = (query: string) => {
+        setSearchText(query);
+        setIsSearching(true);
+    };
+    const handleDeleteHistory = async (query: string) => {
+        await deleteSearchItem(query);
+        setSearchHistory(await loadSearchHistory());
+    };
+    const handleClearHistory = async () => {
+        await clearSearchHistory();
+        setSearchHistory([]);
+    };
+
     return {
         searchText, setSearchText, searchResults, isSearching, setIsSearching,
         selectedImage, setSelectedImage,
         isRecording, isTranscribing, isModelLoading, audioLevel, recordingDuration,
         startListening, stopListening, handleScan,
-        handleFullSync, handlePauseSync, handleResumeSync,
-        isSyncing, isPaused, syncCount, totalImages,
+        handleQuickSync, handleDeepSync, handleFullSync,
+        handlePauseSync, handleResumeSync,
+        isSyncing, isPaused, isDeepSync, syncCount, totalImages,
+        searchHistory, handleSelectHistory, handleDeleteHistory, handleClearHistory,
         handleShare: () => selectedImage && Share.share({ url: selectedImage }),
         handleEdit: () => selectedImage && Linking.openURL(selectedImage)
     };

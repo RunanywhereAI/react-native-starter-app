@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { SyncProgressCard } from '../components';
+import React, { useRef, useEffect, useState } from 'react';
+import { SyncProgressCard, ModelDownloadSheet, SearchHistoryPanel } from '../components';
 import {
     View,
     Text,
@@ -31,9 +31,12 @@ export const PinpointerScreen: React.FC = () => {
         isRecording, isTranscribing, // STT States
         startListening, stopListening,
         handleScan, handleShare, handleEdit,
-        handleFullSync, handlePauseSync, handleResumeSync,
-        isSyncing, isPaused, syncCount, totalImages
+        handleQuickSync, handleDeepSync, handlePauseSync, handleResumeSync,
+        isSyncing, isPaused, isDeepSync, syncCount,
+        searchHistory, handleSelectHistory, handleDeleteHistory, handleClearHistory,
     } = usePinpointer();
+
+    const [showModelSheet, setShowModelSheet] = useState(false);
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(20)).current;
@@ -105,15 +108,25 @@ export const PinpointerScreen: React.FC = () => {
                         <>
                             <View style={styles.titleContainer}>
                                 <Text style={styles.mainTitle}>Pinpointer</Text>
-                                <Text style={styles.subTitle}>On-Device AI Search</Text>
+                                <View style={styles.brainButton}>
+                                    <Text style={styles.subTitle}>On-Device AI Search</Text>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={() => setShowModelSheet(true)}
+                                    style={styles.modelBtn}
+                                >
+                                    <Text style={{ fontSize: 22 }}>🧠</Text>
+                                </TouchableOpacity>
                             </View>
 
-                            {/* --- SYNC CARD --- */}
+                            {/* --- SYNC CARD: Quick + Deep --- */}
                             <SyncProgressCard
                                 isSyncing={isSyncing}
                                 isPaused={isPaused}
+                                isDeepSync={isDeepSync}
                                 syncCount={syncCount}
-                                onStartSync={handleFullSync}
+                                onQuickSync={handleQuickSync}
+                                onDeepSync={handleDeepSync}
                                 onPauseSync={handlePauseSync}
                                 onResumeSync={handleResumeSync}
                             />
@@ -138,17 +151,25 @@ export const PinpointerScreen: React.FC = () => {
                                     onFocus={() => setIsSearching(true)}
                                 />
 
-                                {/* WHISPER MICROPHONE */}
+                                {/* WHISPER MICROPHONE — tap once to start, tap again to stop & search */}
                                 <TouchableOpacity
                                     style={styles.micButton}
-                                    onPressIn={startListening}
-                                    onPressOut={stopListening}
+                                    onPress={isRecording ? stopListening : startListening}
+                                    disabled={isTranscribing}
                                 >
                                     <LinearGradient
-                                        colors={isRecording ? ['#FF416C', '#FF4B2B'] : [AppColors.accentCyan, AppColors.accentViolet]}
+                                        colors={
+                                            isTranscribing
+                                                ? ['#888', '#555']
+                                                : isRecording
+                                                    ? ['#FF416C', '#FF4B2B']
+                                                    : [AppColors.accentCyan, AppColors.accentViolet]
+                                        }
                                         style={styles.micGradient}
                                     >
-                                        <Text style={styles.micIcon}>{isRecording ? "🎙️" : "🎤"}</Text>
+                                        <Text style={styles.micIcon}>
+                                            {isTranscribing ? '⏳' : isRecording ? '⏹️' : '🎤'}
+                                        </Text>
                                     </LinearGradient>
                                 </TouchableOpacity>
 
@@ -168,8 +189,18 @@ export const PinpointerScreen: React.FC = () => {
                         </LinearGradient>
                     </View>
 
+                    {/* Search History — shown when focused but no text typed */}
+                    {isSearching && !searchText && (
+                        <SearchHistoryPanel
+                            history={searchHistory}
+                            onSelect={handleSelectHistory}
+                            onDelete={handleDeleteHistory}
+                            onClearAll={handleClearHistory}
+                        />
+                    )}
+
                     {/* Results Section */}
-                    {isSearching && (
+                    {isSearching && !!searchText && (
                         <Animated.View
                             style={[
                                 styles.resultsContainer,
@@ -184,7 +215,28 @@ export const PinpointerScreen: React.FC = () => {
                                 contentContainerStyle={styles.resultsList}
                                 showsVerticalScrollIndicator={false}
                                 ListEmptyComponent={
-                                    <Text style={styles.subTitle}>No matches found.</Text>
+                                    <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+                                        <Text style={styles.subTitle}>No matches found.</Text>
+                                        <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginTop: 6 }}>
+                                            Not in the last 500 photos?
+                                        </Text>
+                                        <TouchableOpacity
+                                            onPress={handleDeepSync}
+                                            style={{
+                                                marginTop: 12,
+                                                backgroundColor: 'rgba(138,43,226,0.3)',
+                                                paddingHorizontal: 20,
+                                                paddingVertical: 10,
+                                                borderRadius: 20,
+                                                borderWidth: 1,
+                                                borderColor: 'rgba(138,43,226,0.6)',
+                                            }}
+                                        >
+                                            <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '700' }}>
+                                                🔎 Deep Sync entire gallery
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
                                 }
                             />
                         </Animated.View>
@@ -215,6 +267,12 @@ export const PinpointerScreen: React.FC = () => {
                     </ScrollView>
                 </View>
             </Modal>
+
+            {/* MODEL DOWNLOAD SHEET */}
+            <ModelDownloadSheet
+                visible={showModelSheet}
+                onClose={() => setShowModelSheet(false)}
+            />
         </View>
     );
 };
@@ -257,4 +315,14 @@ const styles = StyleSheet.create({
     headerIcon: { color: '#FFF', fontSize: 24 },
     scrollContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
     fullScreenImage: { width: width, height: height * 0.8 },
+    brainButton: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    modelBtn: {
+        width: 40, height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.15)',
+    },
 });

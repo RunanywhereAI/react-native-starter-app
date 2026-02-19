@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 import { RunAnywhere, ModelCategory } from '@runanywhere/core';
 import { LlamaCPP } from '@runanywhere/llamacpp';
 import { ONNX, ModelArtifactType } from '@runanywhere/onnx';
+import { markLLMReady } from '../utils/TextEnrichment';
 
 // Model IDs - matching sample app model registry
 const MODEL_IDS = {
@@ -111,6 +112,7 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
       if (modelInfo?.localPath) {
         await RunAnywhere.loadModel(modelInfo.localPath);
         setIsLLMLoaded(true);
+        markLLMReady(); // allow TextEnrichment to start Hindi keyword generation
       }
       setIsLLMLoading(false);
     } catch (error) {

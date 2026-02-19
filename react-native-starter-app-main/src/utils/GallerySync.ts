@@ -1,16 +1,17 @@
 import { CameraRoll } from "@react-native-camera-roll/camera-roll";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { indexDocument, isFileIndexed } from '../Database';
-import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { buildIndexableContent } from './TextEnrichment';
+import { analyzeImage } from './VisionPipeline';
 
-const BATCH_SIZE = 10;          // OCR 10 photos then pause
-const BATCH_SLEEP_MS = 200;     // 200ms rest between batches (lets GC breathe)
-const CURSOR_KEY = 'gallery_sync_cursor'; // AsyncStorage key for resume
+export const QUICK_SYNC_LIMIT = 300; // Fast cap — no sleep, no LLM
+const DEEP_BATCH_SIZE = 10;          // Smaller batches for deep sync (memory safe)
+const QUICK_BATCH_SIZE = 50;         // Larger batches for quick sync (no sleep needed)
+const DEEP_SLEEP_MS = 200;           // Sleep between deep sync batches
 
+const CURSOR_KEY = 'gallery_sync_cursor';
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-/** Save the current page cursor so we can resume after a crash */
 const saveCursor = async (cursor: string | undefined) => {
     try {
         if (cursor) await AsyncStorage.setItem(CURSOR_KEY, cursor);
@@ -18,55 +19,81 @@ const saveCursor = async (cursor: string | undefined) => {
     } catch (_) { }
 };
 
-/** Load the saved cursor (returns undefined if no previous sync) */
 export const loadSavedCursor = async (): Promise<string | undefined> => {
     try {
         const val = await AsyncStorage.getItem(CURSOR_KEY);
         return val ?? undefined;
-    } catch (_) {
-        return undefined;
-    }
+    } catch (_) { return undefined; }
 };
 
-/** Clear the saved cursor after a completed sync */
 export const clearSyncCursor = async () => {
     try { await AsyncStorage.removeItem(CURSOR_KEY); } catch (_) { }
 };
 
+export const getGallerySyncLimit = async (): Promise<number> => -1;
+export const getGalleryTotalCount = async (): Promise<number> => -1;
+
 /**
- * Returns how many photos are in the gallery (true total, no cap).
- * Uses page_info from a single lightweight fetch.
+ * QUICK SYNC — blazing fast, no sleep, no LLM enrichment.
+ * Processes the most recent QUICK_SYNC_LIMIT photos in large batches.
+ * Great for demos and first-run indexing.
  */
-export const getGalleryTotalCount = async (): Promise<number> => {
-    try {
-        // CameraRoll doesn't expose a direct count API.
-        // Fetch 1 photo just to check if there are any.
-        // We return -1 to signal "unknown" until sync completes.
-        return -1; // Will be updated live during sync via onProgress
-    } catch (_) {
-        return 0;
+export const performQuickSync = async (
+    onProgress: (count: number) => void,
+    cancelRef?: React.MutableRefObject<boolean>,
+): Promise<{ processed: number; wasCancelled: boolean }> => {
+    let hasNextPage = true;
+    let after: string | undefined = undefined;
+    let totalProcessed = 0;
+
+    while (hasNextPage && totalProcessed < QUICK_SYNC_LIMIT) {
+        if (cancelRef?.current) return { processed: totalProcessed, wasCancelled: true };
+
+        const pageResult = await CameraRoll.getPhotos({
+            first: QUICK_BATCH_SIZE,
+            after,
+            assetType: 'Photos',
+        });
+
+        if (pageResult.edges.length === 0) break;
+
+        for (const edge of pageResult.edges) {
+            if (totalProcessed >= QUICK_SYNC_LIMIT || cancelRef?.current) {
+                return { processed: totalProcessed, wasCancelled: !!cancelRef?.current };
+            }
+
+            const uri = edge.node.image.uri;
+            if (!isFileIndexed(uri)) {
+                try {
+                    const vision = await analyzeImage(uri);
+                    // buildIndexableContent is now deterministic (no LLM) — safe for quick sync
+                    const content = await buildIndexableContent(vision.content || 'image');
+                    indexDocument(content || vision.content || 'image', uri, 'Quick Sync', vision.detection_type);
+                } catch (_) {
+                    indexDocument('image', uri, 'Quick Sync');
+                }
+            }
+
+            totalProcessed++;
+            onProgress(totalProcessed);
+        }
+
+        hasNextPage = pageResult.page_info.has_next_page;
+        after = pageResult.page_info.end_cursor;
+        // No sleep — full speed ahead
     }
+
+    return { processed: totalProcessed, wasCancelled: false };
 };
 
 /**
- * Returns the number of photos that will be processed during a sync.
- * NOTE: This was previously capped at DEMO_LIMIT — now uncapped.
- */
-export const getGallerySyncLimit = async (): Promise<number> => {
-    return -1; // Total is unknown upfront; reported live via onProgress
-};
-
-/**
- * Full gallery sync — processes ALL photos in batches.
- * Crash-resilient: resumes from last saved cursor.
- * Pause-safe: checks cancelRef.current each batch.
- *
- * @param onProgress  called with (processed, currentUri) after each photo
- * @param cancelRef   set cancelRef.current = true from outside to pause/stop
- * @param resumeFrom  optional cursor override (uses AsyncStorage if undefined)
+ * DEEP SYNC — processes ALL photos.
+ * Batches of 10 with 200ms sleep between batches (memory safe for 10k+ galleries).
+ * Includes LLM enrichment for Hindi text.
+ * Crash-resumable via AsyncStorage cursor.
  */
 export const performFullGallerySync = async (
-    onProgress: (processedCount: number, currentUri?: string) => void,
+    onProgress: (count: number, uri?: string) => void,
     cancelRef?: React.MutableRefObject<boolean>,
     resumeFrom?: string,
 ): Promise<{ processed: number; wasCancelled: boolean }> => {
@@ -76,46 +103,44 @@ export const performFullGallerySync = async (
 
     try {
         while (hasNextPage) {
-            // --- Pause/cancel check ---
             if (cancelRef?.current) {
+                await saveCursor(after);
                 return { processed: totalProcessed, wasCancelled: true };
             }
 
             const pageResult = await CameraRoll.getPhotos({
-                first: BATCH_SIZE,
-                after: after,
+                first: DEEP_BATCH_SIZE,
+                after,
                 assetType: 'Photos',
             });
 
             if (pageResult.edges.length === 0) break;
 
             for (const edge of pageResult.edges) {
-                // Pause check inside inner loop too
                 if (cancelRef?.current) {
                     await saveCursor(after);
                     return { processed: totalProcessed, wasCancelled: true };
                 }
 
                 const uri = edge.node.image.uri;
-
                 if (!isFileIndexed(uri)) {
                     try {
-                        const ocrResult = await TextRecognition.recognize(uri);
-                        const rawText = ocrResult.text ?? '';
+                        const vision = await analyzeImage(uri);
+                        const rawText = vision.content;
 
-                        // Only enrich if there's meaningful text (skip blank/tiny results)
-                        let indexableContent: string;
-                        if (rawText.trim().length >= 15) {
-                            indexableContent = await buildIndexableContent(rawText);
-                        } else if (rawText.trim().length > 0) {
-                            indexableContent = rawText; // Short text: store as-is, skip LLM
+                        // Deep sync: always enrich Hindi (even short words like कमल).
+                        // For non-Hindi Latin text, skip LLM if very short (<15 chars).
+                        let content: string;
+                        if (rawText.trim().length === 0) {
+                            content = 'image';
                         } else {
-                            indexableContent = 'image';
+                            // buildIndexableContent detects Hindi internally
+                            // and always enriches it regardless of length
+                            content = await buildIndexableContent(rawText);
                         }
-
-                        indexDocument(indexableContent, uri, 'Gallery Sync');
+                        indexDocument(content, uri, 'Deep Sync', vision.detection_type);
                     } catch (_) {
-                        indexDocument('image', uri, 'Gallery Sync');
+                        indexDocument('image', uri, 'Deep Sync');
                     }
                 }
 
@@ -125,20 +150,13 @@ export const performFullGallerySync = async (
 
             hasNextPage = pageResult.page_info.has_next_page;
             after = pageResult.page_info.end_cursor;
-
-            // Save cursor after each page — crash recovery point
             await saveCursor(after);
-
-            // Breathe between batches: lets GC collect, prevents UI freeze
-            await sleep(BATCH_SLEEP_MS);
+            await sleep(DEEP_SLEEP_MS); // breathe between batches
         }
 
-        // Sync complete — clear the saved cursor
         await clearSyncCursor();
         return { processed: totalProcessed, wasCancelled: false };
-
     } catch (error) {
-        // Save cursor on unexpected error so we can resume
         await saveCursor(after);
         throw error;
     }

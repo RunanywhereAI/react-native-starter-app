@@ -6,8 +6,10 @@ import { AppColors } from '../theme';
 interface SyncProps {
   isSyncing: boolean;
   isPaused: boolean;
+  isDeepSync: boolean;
   syncCount: number;
-  onStartSync: () => void;
+  onQuickSync: () => void;
+  onDeepSync: () => void;
   onPauseSync: () => void;
   onResumeSync: () => void;
 }
@@ -15,105 +17,127 @@ interface SyncProps {
 export const SyncProgressCard: React.FC<SyncProps> = ({
   isSyncing,
   isPaused,
+  isDeepSync,
   syncCount,
-  onStartSync,
+  onQuickSync,
+  onDeepSync,
   onPauseSync,
   onResumeSync,
 }) => {
-  const getStatus = () => {
-    if (isPaused) return `Paused at ${syncCount} photos — tap to resume`;
-    if (isSyncing) return `Indexing photo #${syncCount}...`;
-    if (syncCount > 0) return `✅ ${syncCount} photos indexed`;
-    return 'Index your entire gallery for AI search';
-  };
-
   const getTitle = () => {
-    if (isPaused) return '⏸ Sync Paused';
-    if (isSyncing) return '🧠 Syncing...';
-    if (syncCount > 0) return '🔄 Re-Sync Gallery';
-    return '🔄 Start Full Sync';
+    if (isPaused) return '⏸ Deep Sync Paused';
+    if (isSyncing && isDeepSync) return '🔎 Deep Scanning...';
+    if (isSyncing) return '⚡ Quick Sync...';
+    if (syncCount > 0) return `✅ ${syncCount} photos indexed`;
+    return '📸 Sync Gallery';
   };
 
-  const handlePress = () => {
-    if (isSyncing) {
-      onPauseSync();
-    } else if (isPaused) {
-      onResumeSync();
-    } else {
-      onStartSync();
-    }
+  const getSubtitle = () => {
+    if (isPaused) return `Saved at ${syncCount} — tap Resume to continue`;
+    if (isSyncing) return `Indexed ${syncCount} photos so far`;
+    if (syncCount > 0) return 'Quick sync done. Run Deep Sync for full library.';
+    return 'Quick = first 500 • Deep = entire gallery';
   };
 
   return (
-    <TouchableOpacity style={styles.card} onPress={handlePress}>
+    <View style={styles.card}>
       <LinearGradient
         colors={
           isPaused
             ? ['rgba(255,165,0,0.15)', 'rgba(255,165,0,0.05)']
-            : ['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.05)']
+            : isDeepSync && isSyncing
+              ? ['rgba(138,43,226,0.15)', 'rgba(138,43,226,0.05)']
+              : ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']
         }
         style={styles.container}
       >
+        {/* Header */}
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>{getTitle()}</Text>
-            <Text style={styles.subtitle}>{getStatus()}</Text>
-          </View>
-          <View style={styles.actionBadge}>
-            <Text style={styles.actionText}>
-              {isSyncing ? 'Pause' : isPaused ? 'Resume' : 'Start'}
-            </Text>
+            <Text style={styles.subtitle}>{getSubtitle()}</Text>
           </View>
         </View>
 
+        {/* Progress bar */}
         {(isSyncing || isPaused) && (
           <View style={styles.track}>
             <View
               style={[
                 styles.fill,
                 {
-                  width: syncCount > 0 ? '100%' : '5%', // indeterminate style
-                  backgroundColor: isPaused ? '#FFA500' : AppColors.accentCyan,
+                  backgroundColor: isPaused
+                    ? '#FFA500'
+                    : isDeepSync
+                      ? AppColors.accentViolet
+                      : AppColors.accentCyan,
                 },
               ]}
             />
           </View>
         )}
+
+        {/* Action buttons */}
+        <View style={styles.actions}>
+          {isSyncing ? (
+            <TouchableOpacity style={[styles.btn, styles.btnWarn]} onPress={onPauseSync}>
+              <Text style={styles.btnText}>⏸ Pause</Text>
+            </TouchableOpacity>
+          ) : isPaused ? (
+            <>
+              <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={onResumeSync}>
+                <Text style={styles.btnText}>▶ Resume Deep</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btn, styles.btnSecondary]} onPress={onQuickSync}>
+                <Text style={styles.btnText}>⚡ Quick</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={onQuickSync}>
+                <Text style={styles.btnText}>⚡ Quick (500)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btn, styles.btnDeep]} onPress={onDeepSync}>
+                <Text style={styles.btnText}>🔎 Deep Sync</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
       </LinearGradient>
-    </TouchableOpacity>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   card: {
-    marginVertical: 15,
+    marginVertical: 12,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
-  container: { padding: 18 },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-  },
-  title: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  subtitle: { color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 4 },
-  actionBadge: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  actionText: { color: '#FFF', fontSize: 12, fontWeight: '600' },
+  container: { padding: 16 },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  title: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  subtitle: { color: 'rgba(255,255,255,0.55)', fontSize: 11, marginTop: 3 },
   track: {
-    height: 6,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 3,
-    marginTop: 15,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 2,
+    marginBottom: 12,
     overflow: 'hidden',
   },
-  fill: { height: '100%', borderRadius: 3 },
+  fill: { height: '100%', width: '100%', borderRadius: 2 },
+  actions: { flexDirection: 'row', gap: 8 },
+  btn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 9,
+    alignItems: 'center',
+  },
+  btnPrimary: { backgroundColor: AppColors.accentCyan + 'CC' },
+  btnDeep: { backgroundColor: AppColors.accentViolet + 'CC' },
+  btnSecondary: { backgroundColor: 'rgba(255,255,255,0.15)' },
+  btnWarn: { backgroundColor: '#FFA500CC', flex: 1 },
+  btnText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
 });
