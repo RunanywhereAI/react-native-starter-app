@@ -1,5 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { SyncProgressCard, ModelDownloadSheet, SearchHistoryPanel, RecentPhotosSlide } from '../components';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../navigation/types';
 import { addRecentPhoto } from '../utils/RecentPhotos';
 import { DocumentRecord } from '../Database';
 import {
@@ -23,6 +26,7 @@ import { usePinpointer } from '../hooks/usePinpointer';
 
 export const PinpointerScreen: React.FC = () => {
     const { width, height } = useWindowDimensions();
+    const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
 
     const {
         searchText, setSearchText,
@@ -181,6 +185,7 @@ export const PinpointerScreen: React.FC = () => {
                 <View style={styles.header}>
                     <TouchableOpacity
                         style={styles.menuButton}
+                        onPress={() => navigation.navigate('Home')}
                         accessibilityLabel="Open menu"
                         accessibilityRole="button"
                     >

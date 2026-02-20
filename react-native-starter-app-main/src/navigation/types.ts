@@ -6,4 +6,6 @@ export type RootStackParamList = {
   TextToSpeech: undefined;
   VoicePipeline: undefined;
   Pinpointer: undefined;
+  SmartClipboard: undefined;
+  PointAndSpeak: undefined;
 };

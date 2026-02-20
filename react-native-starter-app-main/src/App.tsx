@@ -20,6 +20,8 @@ import {
   VoicePipelineScreen,
   PinpointerScreen,
   ToolCallingScreen,
+  SmartClipboardScreen,
+  PointAndSpeakScreen,
 } from './screens';
 import { setupDatabase } from './Database';
 import { RootStackParamList } from './navigation/types';
@@ -85,6 +87,10 @@ const App: React.FC = () => {
             <Stack.Screen name="SpeechToText" component={SpeechToTextScreen} options={{ title: 'Speech to Text' }} />
             <Stack.Screen name="TextToSpeech" component={TextToSpeechScreen} options={{ title: 'Text to Speech' }} />
             <Stack.Screen name="VoicePipeline" component={VoicePipelineScreen} options={{ title: 'Voice Pipeline' }} />
+
+            {/* New Feature Screens */}
+            <Stack.Screen name="SmartClipboard" component={SmartClipboardScreen} options={{ title: 'Smart Clipboard' }} />
+            <Stack.Screen name="PointAndSpeak" component={PointAndSpeakScreen} options={{ title: 'Point & Speak' }} />
           </Stack.Navigator>
         </NavigationContainer>
       </ModelServiceProvider>

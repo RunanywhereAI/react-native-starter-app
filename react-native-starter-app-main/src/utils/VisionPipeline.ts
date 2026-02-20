@@ -8,6 +8,8 @@ export type DetectionType = 'TEXT' | 'OBJECT' | 'EMPTY';
 
 export interface VisionResult {
     detection_type: DetectionType;
+    /** Original raw text extracted before any enrichment */
+    raw_text: string;
     /** Flat space-joined string ready to store in SQLite for LIKE search */
     content: string;
     /** Structured keys: [original, transliteration?, soundex?, ...labels?] */
@@ -76,6 +78,7 @@ export const analyzeImage = async (uri: string): Promise<VisionResult> => {
 
         return {
             detection_type: 'TEXT',
+            raw_text: combinedText,
             search_index: [...words, ...soundexCodes],
             content: [...words, ...soundexCodes].join(' '),
             optimized_status: 'Object_Detection_Bypassed: True',
@@ -89,6 +92,7 @@ export const analyzeImage = async (uri: string): Promise<VisionResult> => {
         const soundexCodes = soundexAll(labels.join(' '));
         return {
             detection_type: 'OBJECT',
+            raw_text: labels.join(', '),
             search_index: [...labels, ...soundexCodes],
             content: [...labels, ...soundexCodes].join(' '),
             optimized_status: 'Object_Detection_Bypassed: False',
@@ -97,6 +101,7 @@ export const analyzeImage = async (uri: string): Promise<VisionResult> => {
 
     return {
         detection_type: 'EMPTY',
+        raw_text: '',
         search_index: [],
         content: '',
         optimized_status: 'Object_Detection_Bypassed: False',

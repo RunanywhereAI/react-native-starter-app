@@ -5,3 +5,5 @@ export * from './SpeechToTextScreen';
 export * from './TextToSpeechScreen';
 export * from './VoicePipelineScreen';
 export * from './PinpointerScreen';
+export * from './SmartClipboardScreen';
+export * from './PointAndSpeakScreen';

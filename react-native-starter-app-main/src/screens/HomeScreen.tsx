@@ -97,6 +97,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
                 gradientColors={[AppColors.accentGreen, '#059669']}
                 onPress={() => navigation.navigate('VoicePipeline')}
               />
+              <FeatureCard
+                title="Clipboard"
+                subtitle="Copy from World"
+                gradientColors={[AppColors.accentOrange, '#E67E22']}
+                onPress={() => navigation.navigate('SmartClipboard')}
+              />
+            </View>
+            <View style={styles.row}>
+              <FeatureCard
+                title="Speak"
+                subtitle="Point & Listen"
+                gradientColors={['#10B981', '#047857']}
+                onPress={() => navigation.navigate('PointAndSpeak')}
+              />
               <View style={{ flex: 1, margin: 8 }} />
             </View>
           </View>
