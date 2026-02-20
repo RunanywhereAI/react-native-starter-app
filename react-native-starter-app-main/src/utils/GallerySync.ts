@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { indexDocument, isFileIndexed } from '../Database';
 import { buildIndexableContent } from './TextEnrichment';
 import { analyzeImage } from './VisionPipeline';
+import { AppLogger } from './AppLogger';
 
 export const QUICK_SYNC_LIMIT = 300; // Fast cap — no sleep, no LLM
 const DEEP_BATCH_SIZE = 10;          // Smaller batches for deep sync (memory safe)
@@ -16,18 +17,27 @@ const saveCursor = async (cursor: string | undefined) => {
     try {
         if (cursor) await AsyncStorage.setItem(CURSOR_KEY, cursor);
         else await AsyncStorage.removeItem(CURSOR_KEY);
-    } catch (_) { }
+    } catch (e) {
+        AppLogger.warn('GallerySync', 'Failed to save cursor', e);
+    }
 };
 
 export const loadSavedCursor = async (): Promise<string | undefined> => {
     try {
         const val = await AsyncStorage.getItem(CURSOR_KEY);
         return val ?? undefined;
-    } catch (_) { return undefined; }
+    } catch (e) {
+        AppLogger.warn('GallerySync', 'Failed to load cursor', e);
+        return undefined;
+    }
 };
 
 export const clearSyncCursor = async () => {
-    try { await AsyncStorage.removeItem(CURSOR_KEY); } catch (_) { }
+    try {
+        await AsyncStorage.removeItem(CURSOR_KEY);
+    } catch (e) {
+        AppLogger.warn('GallerySync', 'Failed to clear cursor', e);
+    }
 };
 
 export const getGallerySyncLimit = async (): Promise<number> => -1;
@@ -36,7 +46,6 @@ export const getGalleryTotalCount = async (): Promise<number> => -1;
 /**
  * QUICK SYNC — blazing fast, no sleep, no LLM enrichment.
  * Processes the most recent QUICK_SYNC_LIMIT photos in large batches.
- * Great for demos and first-run indexing.
  */
 export const performQuickSync = async (
     onProgress: (count: number) => void,
@@ -66,10 +75,10 @@ export const performQuickSync = async (
             if (!isFileIndexed(uri)) {
                 try {
                     const vision = await analyzeImage(uri);
-                    // buildIndexableContent is now deterministic (no LLM) — safe for quick sync
                     const content = await buildIndexableContent(vision.content || 'image');
                     indexDocument(content || vision.content || 'image', uri, 'Quick Sync', vision.detection_type);
-                } catch (_) {
+                } catch (e) {
+                    AppLogger.warn('QuickSync', `Failed to process ${uri}`, e);
                     indexDocument('image', uri, 'Quick Sync');
                 }
             }
@@ -80,7 +89,6 @@ export const performQuickSync = async (
 
         hasNextPage = pageResult.page_info.has_next_page;
         after = pageResult.page_info.end_cursor;
-        // No sleep — full speed ahead
     }
 
     return { processed: totalProcessed, wasCancelled: false };
@@ -89,7 +97,6 @@ export const performQuickSync = async (
 /**
  * DEEP SYNC — processes ALL photos.
  * Batches of 10 with 200ms sleep between batches (memory safe for 10k+ galleries).
- * Includes LLM enrichment for Hindi text.
  * Crash-resumable via AsyncStorage cursor.
  */
 export const performFullGallerySync = async (
@@ -128,18 +135,15 @@ export const performFullGallerySync = async (
                         const vision = await analyzeImage(uri);
                         const rawText = vision.content;
 
-                        // Deep sync: always enrich Hindi (even short words like कमल).
-                        // For non-Hindi Latin text, skip LLM if very short (<15 chars).
                         let content: string;
                         if (rawText.trim().length === 0) {
                             content = 'image';
                         } else {
-                            // buildIndexableContent detects Hindi internally
-                            // and always enriches it regardless of length
                             content = await buildIndexableContent(rawText);
                         }
                         indexDocument(content, uri, 'Deep Sync', vision.detection_type);
-                    } catch (_) {
+                    } catch (e) {
+                        AppLogger.warn('DeepSync', `Failed to process ${uri}`, e);
                         indexDocument('image', uri, 'Deep Sync');
                     }
                 }
@@ -151,7 +155,7 @@ export const performFullGallerySync = async (
             hasNextPage = pageResult.page_info.has_next_page;
             after = pageResult.page_info.end_cursor;
             await saveCursor(after);
-            await sleep(DEEP_SLEEP_MS); // breathe between batches
+            await sleep(DEEP_SLEEP_MS);
         }
 
         await clearSyncCursor();

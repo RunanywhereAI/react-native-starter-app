@@ -8,6 +8,7 @@ interface SyncProps {
   isPaused: boolean;
   isDeepSync: boolean;
   syncCount: number;
+  totalImages?: number;
   onQuickSync: () => void;
   onDeepSync: () => void;
   onPauseSync: () => void;
@@ -19,6 +20,7 @@ export const SyncProgressCard: React.FC<SyncProps> = ({
   isPaused,
   isDeepSync,
   syncCount,
+  totalImages = 0,
   onQuickSync,
   onDeepSync,
   onPauseSync,
@@ -34,10 +36,22 @@ export const SyncProgressCard: React.FC<SyncProps> = ({
 
   const getSubtitle = () => {
     if (isPaused) return `Saved at ${syncCount} — tap Resume to continue`;
+    if (isSyncing && totalImages > 0) return `Indexed ${syncCount} of ${totalImages} photos`;
     if (isSyncing) return `Indexed ${syncCount} photos so far`;
     if (syncCount > 0) return 'Quick sync done. Run Deep Sync for full library.';
-    return 'Quick = first 500 • Deep = entire gallery';
+    return 'Quick = first 300 • Deep = entire gallery';
   };
+
+  // Compute fill percentage
+  const getProgress = (): number => {
+    if (!isSyncing && !isPaused) return syncCount > 0 ? 1 : 0;
+    if (totalImages > 0) return Math.min(syncCount / totalImages, 1);
+    // Indeterminate: pulse between 30-70%
+    return 0.5;
+  };
+
+  const progress = getProgress();
+  const isIndeterminate = (isSyncing || isPaused) && totalImages === 0;
 
   return (
     <View style={styles.card}>
@@ -66,6 +80,7 @@ export const SyncProgressCard: React.FC<SyncProps> = ({
               style={[
                 styles.fill,
                 {
+                  width: isIndeterminate ? '50%' : `${Math.round(progress * 100)}%`,
                   backgroundColor: isPaused
                     ? '#FFA500'
                     : isDeepSync
@@ -80,24 +95,49 @@ export const SyncProgressCard: React.FC<SyncProps> = ({
         {/* Action buttons */}
         <View style={styles.actions}>
           {isSyncing ? (
-            <TouchableOpacity style={[styles.btn, styles.btnWarn]} onPress={onPauseSync}>
+            <TouchableOpacity
+              style={[styles.btn, styles.btnWarn]}
+              onPress={onPauseSync}
+              accessibilityLabel="Pause sync"
+              accessibilityRole="button"
+            >
               <Text style={styles.btnText}>⏸ Pause</Text>
             </TouchableOpacity>
           ) : isPaused ? (
             <>
-              <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={onResumeSync}>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnPrimary]}
+                onPress={onResumeSync}
+                accessibilityLabel="Resume deep sync"
+                accessibilityRole="button"
+              >
                 <Text style={styles.btnText}>▶ Resume Deep</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.btn, styles.btnSecondary]} onPress={onQuickSync}>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnSecondary]}
+                onPress={onQuickSync}
+                accessibilityLabel="Quick sync"
+                accessibilityRole="button"
+              >
                 <Text style={styles.btnText}>⚡ Quick</Text>
               </TouchableOpacity>
             </>
           ) : (
             <>
-              <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={onQuickSync}>
-                <Text style={styles.btnText}>⚡ Quick (500)</Text>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnPrimary]}
+                onPress={onQuickSync}
+                accessibilityLabel="Quick sync 300 recent photos"
+                accessibilityRole="button"
+              >
+                <Text style={styles.btnText}>⚡ Quick (300)</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.btn, styles.btnDeep]} onPress={onDeepSync}>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnDeep]}
+                onPress={onDeepSync}
+                accessibilityLabel="Deep sync entire gallery"
+                accessibilityRole="button"
+              >
                 <Text style={styles.btnText}>🔎 Deep Sync</Text>
               </TouchableOpacity>
             </>
@@ -127,7 +167,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     overflow: 'hidden',
   },
-  fill: { height: '100%', width: '100%', borderRadius: 2 },
+  fill: { height: '100%', borderRadius: 2 },
   actions: { flexDirection: 'row', gap: 8 },
   btn: {
     flex: 1,

@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppLogger } from './AppLogger';
 
 const HISTORY_KEY = 'search_history';
 const MAX_HISTORY = 30;
@@ -14,7 +15,8 @@ export const loadSearchHistory = async (): Promise<SearchHistoryItem[]> => {
     try {
         const raw = await AsyncStorage.getItem(HISTORY_KEY);
         return raw ? JSON.parse(raw) : [];
-    } catch (_) {
+    } catch (e) {
+        AppLogger.warn('SearchHistory', 'Failed to load history', e);
         return [];
     }
 };
@@ -33,7 +35,9 @@ export const saveSearch = async (query: string, resultCount: number): Promise<vo
             ...filtered,
         ].slice(0, MAX_HISTORY);
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
-    } catch (_) { }
+    } catch (e) {
+        AppLogger.error('SearchHistory', 'Failed to save search', e);
+    }
 };
 
 /** Delete a single history item */
@@ -44,14 +48,18 @@ export const deleteSearchItem = async (query: string): Promise<void> => {
             h => h.query.toLowerCase() !== query.toLowerCase()
         );
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
-    } catch (_) { }
+    } catch (e) {
+        AppLogger.error('SearchHistory', 'Failed to delete item', e);
+    }
 };
 
 /** Clear all history */
 export const clearSearchHistory = async (): Promise<void> => {
     try {
         await AsyncStorage.removeItem(HISTORY_KEY);
-    } catch (_) { }
+    } catch (e) {
+        AppLogger.error('SearchHistory', 'Failed to clear history', e);
+    }
 };
 
 /** Format timestamp as human-readable (e.g. "2h ago", "Yesterday") */

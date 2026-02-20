@@ -5,3 +5,4 @@ export * from './AudioVisualizer';
 export * from './SyncProgressCard';
 export * from './ModelDownloadSheet';
 export * from './SearchHistoryPanel';
+export * from './RecentPhotosSlide';

@@ -34,13 +34,12 @@ export const ChatScreen: React.FC = () => {
     }
   }, [messages, currentResponse]);
 
-  const handleSend = async () => {
-    const text = inputText.trim();
-    if (!text || isGenerating) return;
+  const sendMessage = async (messageText: string) => {
+    if (!messageText || isGenerating) return;
 
     // Add user message
     const userMessage: ChatMessage = {
-      text,
+      text: messageText,
       isUser: true,
       timestamp: new Date(),
     };
@@ -50,8 +49,7 @@ export const ChatScreen: React.FC = () => {
     setCurrentResponse('');
 
     try {
-      // Per docs: https://docs.runanywhere.ai/react-native/quick-start#6-stream-responses
-      const streamResult = await RunAnywhere.generateStream(text, {
+      const streamResult = await RunAnywhere.generateStream(messageText, {
         maxTokens: 256,
         temperature: 0.8,
       });
@@ -59,16 +57,13 @@ export const ChatScreen: React.FC = () => {
       streamCancelRef.current = streamResult.cancel;
       responseRef.current = '';
 
-      // Stream tokens as they arrive
       for await (const token of streamResult.stream) {
         responseRef.current += token;
         setCurrentResponse(responseRef.current);
       }
 
-      // Get final metrics
       const finalResult = await streamResult.result;
 
-      // Add assistant message (use ref to get final text due to closure)
       const assistantMessage: ChatMessage = {
         text: responseRef.current,
         isUser: false,
@@ -93,6 +88,8 @@ export const ChatScreen: React.FC = () => {
     }
   };
 
+  const handleSend = () => sendMessage(inputText.trim());
+
   const handleStop = () => {
     if (streamCancelRef.current) {
       streamCancelRef.current();
@@ -111,18 +108,13 @@ export const ChatScreen: React.FC = () => {
     }
   };
 
-  const handleClearChat = () => {
-    setMessages([]);
-  };
-
   const renderSuggestionChip = (text: string) => (
     <TouchableOpacity
       key={text}
       style={styles.suggestionChip}
-      onPress={() => {
-        setInputText(text);
-        handleSend();
-      }}
+      onPress={() => sendMessage(text)}
+      accessibilityLabel={`Suggest: ${text}`}
+      accessibilityRole="button"
     >
       <Text style={styles.suggestionText}>{text}</Text>
     </TouchableOpacity>

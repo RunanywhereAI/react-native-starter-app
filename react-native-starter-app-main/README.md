@@ -2,8 +2,8 @@
 
 A comprehensive starter app demonstrating the capabilities of the [RunAnywhere SDK](https://www.npmjs.com/org/runanywhere) - a privacy-first, on-device AI SDK for React Native.
 
-![RunAnywhere](https://img.shields.io/badge/RunAnywhere-0.16.10-00D9FF)
-![React Native](https://img.shields.io/badge/React%20Native-0.76.5-61DAFB)
+![RunAnywhere](https://img.shields.io/badge/RunAnywhere-0.18.1-00D9FF)
+![React Native](https://img.shields.io/badge/React%20Native-0.83.1-61DAFB)
 ![Platforms](https://img.shields.io/badge/Platforms-iOS%20%7C%20Android-green)
 
 ## ✨ Features
@@ -205,20 +205,41 @@ Required permissions are configured in `android/app/src/main/AndroidManifest.xml
 ```
 src/
 ├── App.tsx                      # Main app entry, SDK initialization
+├── Database.ts                  # SQLite + FTS5 search engine
 ├── theme/
 │   └── colors.ts               # Color palette and theme
 ├── services/
 │   └── ModelService.tsx        # Model management (download, load, state)
+├── utils/
+│   ├── AppLogger.ts            # Centralized error logging
+│   ├── VisionPipeline.ts       # OCR + Image Labeling pipeline
+│   ├── GallerySync.ts          # Gallery sync engine
+│   ├── TextEnrichment.ts       # Hindi text enrichment
+│   ├── HindiTranslit.ts        # Devanagari → Latin transliteration
+│   ├── Soundex.ts              # Phonetic search codes
+│   ├── SearchHistory.ts        # Search history persistence
+│   └── RecentPhotos.ts         # Recent photo tracking
+├── hooks/
+│   ├── usePinpointer.ts        # Main screen composition hook
+│   ├── useSearch.ts            # Search & history management
+│   ├── useGallerySync.ts       # Gallery sync & progress
+│   └── useVoiceRecording.ts    # Mic recording & STT
 ├── components/
 │   ├── FeatureCard.tsx         # Home screen feature cards
 │   ├── ModelLoaderWidget.tsx   # Model download/load UI
+│   ├── ModelDownloadSheet.tsx  # Model management bottom sheet
+│   ├── SyncProgressCard.tsx    # Sync progress with real % bar
 │   ├── ChatMessageBubble.tsx   # Chat message UI
+│   ├── SearchHistoryPanel.tsx  # Search history overlay
+│   ├── RecentPhotosSlide.tsx   # Recent photos grid
 │   └── AudioVisualizer.tsx     # Audio level visualization
 ├── screens/
-│   ├── HomeScreen.tsx          # Main navigation screen
+│   ├── PinpointerScreen.tsx    # Main visual search screen
+│   ├── HomeScreen.tsx          # Feature navigation screen
 │   ├── ChatScreen.tsx          # LLM chat interface
 │   ├── SpeechToTextScreen.tsx  # STT interface
 │   ├── TextToSpeechScreen.tsx  # TTS interface
+│   ├── ToolCallingScreen.tsx   # Tool calling demo
 │   └── VoicePipelineScreen.tsx # Voice agent interface
 └── navigation/
     └── types.ts                # Navigation type definitions
@@ -230,9 +251,9 @@ The app comes preconfigured with these models:
 
 | Model | Purpose | Size | Source |
 |-------|---------|------|--------|
-| SmolLM2 360M Q8_0 | Text generation | ~400MB | HuggingFace |
-| Sherpa ONNX Whisper Tiny EN | Speech recognition | ~80MB | RunAnywhere |
-| Piper TTS (US English) | Voice synthesis | ~100MB | RunAnywhere |
+| LFM2 350M Q8_0 | Text generation | ~400MB | HuggingFace |
+| Sherpa ONNX Whisper Tiny EN | Speech recognition | ~75MB | RunAnywhere |
+| Piper TTS (US English) | Voice synthesis | ~65MB | RunAnywhere |
 
 ## 🎨 Customization
 
