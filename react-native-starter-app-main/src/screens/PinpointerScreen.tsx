@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { SyncProgressCard, ModelDownloadSheet, SearchHistoryPanel, RecentPhotosSlide } from '../components';
-import { useNavigation } from '@react-navigation/native';
+import { SyncProgressCard, ModelDownloadSheet, SearchHistoryPanel, RecentPhotosSlide, SearchFilterChips, FilterCategory } from '../components';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../navigation/types';
 import { addRecentPhoto } from '../utils/RecentPhotos';
@@ -21,10 +21,14 @@ import {
     useWindowDimensions,
     Vibration,
     ActivityIndicator,
+    Linking,
+    NativeModules,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { AppColors } from '../theme';
 import { usePinpointer } from '../hooks/usePinpointer';
+
+const { StorageModule } = NativeModules;
 
 export const PinpointerScreen: React.FC = () => {
     const { width, height } = useWindowDimensions();
@@ -40,11 +44,15 @@ export const PinpointerScreen: React.FC = () => {
         handleScan, handleShare, handleEdit,
         handleQuickSync, handleDeepSync, handlePauseSync, handleResumeSync,
         isSyncing, isPaused, isDeepSync, syncCount, totalImages,
+        isSyncingDocs, docSyncCount, totalDocs, handleDocumentSync,
         searchHistory, handleSelectHistory, handleDeleteHistory, handleClearHistory,
     } = usePinpointer();
 
+    const route = useRoute<RouteProp<RootStackParamList, 'Pinpointer'>>();
+
     const [showModelSheet, setShowModelSheet] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
+    const [selectedFilter, setSelectedFilter] = useState<FilterCategory>('ALL');
     const scrollViewRef = useRef<ScrollView>(null);
     const searchInputRef = useRef<TextInput>(null);
 
@@ -60,10 +68,20 @@ export const PinpointerScreen: React.FC = () => {
         } else {
             Animated.parallel([
                 Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
-                Animated.timing(slideAnim, { toValue: 20, duration: 300, useNativeDriver: true }),
+                Animated.timing(slideAnim, { toValue: 20, duration: 400, useNativeDriver: true }),
             ]).start();
         }
-    }, [isSearching]);
+    }, [isSearching, fadeAnim, slideAnim]);
+
+    // Handle Deep Sync trigger from HomeScreen Navigation
+    useEffect(() => {
+        if (route.params?.startUniversalSync) {
+            // Automatically launch the heavy gallery sync
+            handleDeepSync();
+            // Clear parameter so it doesn't re-trigger on subsequent un-related mounts
+            navigation.setParams({ startUniversalSync: false });
+        }
+    }, [route.params?.startUniversalSync]);
 
     const handleBackPress = () => {
         setIsSearching(false);
@@ -84,22 +102,40 @@ export const PinpointerScreen: React.FC = () => {
     const renderResultItem = ({ item }: { item: DocumentRecord }) => (
         <TouchableOpacity
             style={styles.resultItem}
-            onPress={() => openImage(item.filePath)}
-            accessibilityLabel={`View image: ${item.content?.substring(0, 40)}`}
+            onPress={() => {
+                if (item.type === 'DOCUMENT') {
+                    if (StorageModule && StorageModule.openPDF) {
+                        StorageModule.openPDF(item.filePath.replace('file://', ''));
+                    } else {
+                        Linking.openURL(item.filePath).catch(e => console.error(e));
+                    }
+                } else {
+                    openImage(item.filePath);
+                }
+            }}
+            accessibilityLabel={`View file: ${item.content?.substring(0, 40)} `}
             accessibilityRole="button"
         >
             {/* Thumbnail */}
             <View style={styles.resultIconContainer}>
-                <Image
-                    source={{ uri: item.filePath }}
-                    style={styles.resultThumbnail}
-                    resizeMode="cover"
-                />
+                {item.type === 'DOCUMENT' ? (
+                    <Text style={{ fontSize: 32 }}>📄</Text>
+                ) : (
+                    <Image
+                        source={{ uri: item.filePath }}
+                        style={styles.resultThumbnail}
+                        resizeMode="cover"
+                    />
+                )}
             </View>
             <View style={styles.resultTextContainer}>
-                <Text style={styles.resultTitle} numberOfLines={2}>{item.content}</Text>
+                <Text style={styles.resultTitle} numberOfLines={2}>
+                    {item.type === 'DOCUMENT' ? (item.title || item.filePath.split('/').pop()) : item.content}
+                </Text>
                 <Text style={styles.resultSubtitle}>
-                    {item.detection_type === 'OBJECT' ? '🏷 Object' : '📝 Text'} • Tap to view
+                    {item.type === 'DOCUMENT'
+                        ? '📄 Document • Tap to open'
+                        : (item.detection_type === 'OBJECT' ? '🏷 Object' : '📝 Text') + ' • Tap to view'}
                 </Text>
             </View>
         </TouchableOpacity>
@@ -238,9 +274,15 @@ export const PinpointerScreen: React.FC = () => {
                                     { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
                                 ]}
                             >
-                                <Text style={styles.sectionHeader}>Found in Images</Text>
+                                <SearchFilterChips
+                                    selectedFilter={selectedFilter}
+                                    onSelectFilter={setSelectedFilter}
+                                />
+                                <Text style={styles.sectionHeader}>
+                                    {selectedFilter === 'ALL' ? 'Top Results' : (selectedFilter === 'IMAGE' ? 'Found in Photos' : 'Found in Documents')}
+                                </Text>
                                 <FlatList
-                                    data={searchResults}
+                                    data={searchResults.filter(item => selectedFilter === 'ALL' || item.type === selectedFilter)}
                                     renderItem={renderResultItem}
                                     keyExtractor={(item) => item.filePath || String(item.id)}
                                     contentContainerStyle={styles.resultsList}
@@ -323,10 +365,14 @@ export const PinpointerScreen: React.FC = () => {
                                             isSyncing={isSyncing}
                                             isPaused={isPaused}
                                             isDeepSync={isDeepSync}
+                                            isSyncingDocs={isSyncingDocs}
                                             syncCount={syncCount}
+                                            docSyncCount={docSyncCount}
                                             totalImages={totalImages}
+                                            totalDocs={totalDocs}
                                             onQuickSync={handleQuickSync}
                                             onDeepSync={handleDeepSync}
+                                            onSyncDocs={handleDocumentSync}
                                             onPauseSync={handlePauseSync}
                                             onResumeSync={handleResumeSync}
                                         />

@@ -89,6 +89,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
                 onPress={() => navigation.navigate('PointAndSpeak')}
               />
             </View>
+            <View style={styles.row}>
+              <FeatureCard
+                title="Universal Sync"
+                subtitle="Index Entire Device"
+                gradientColors={[AppColors.primaryMid, AppColors.primaryDark]}
+                onPress={() => navigation.navigate('Pinpointer', { startUniversalSync: true })}
+              />
+            </View>
           </View>
 
           {/* Model Info Section */}

@@ -76,10 +76,10 @@ export const performQuickSync = async (
                 try {
                     const vision = await analyzeImage(uri);
                     const content = await buildIndexableContent(vision.content || 'image');
-                    indexDocument(content || vision.content || 'image', uri, 'Quick Sync', vision.detection_type);
+                    indexDocument(null, content || vision.content || 'image', uri, 'IMAGE', vision.detection_type as 'TEXT' | 'OBJECT');
                 } catch (e) {
                     AppLogger.warn('QuickSync', `Failed to process ${uri}`, e);
-                    indexDocument('image', uri, 'Quick Sync');
+                    indexDocument(null, 'image', uri, 'IMAGE', 'OBJECT');
                 }
             }
 
@@ -141,10 +141,10 @@ export const performFullGallerySync = async (
                         } else {
                             content = await buildIndexableContent(rawText);
                         }
-                        indexDocument(content, uri, 'Deep Sync', vision.detection_type);
+                        indexDocument(null, content, uri, 'IMAGE', vision.detection_type as 'TEXT' | 'OBJECT');
                     } catch (e) {
                         AppLogger.warn('DeepSync', `Failed to process ${uri}`, e);
-                        indexDocument('image', uri, 'Deep Sync');
+                        indexDocument(null, 'image', uri, 'IMAGE', 'OBJECT');
                     }
                 }
 

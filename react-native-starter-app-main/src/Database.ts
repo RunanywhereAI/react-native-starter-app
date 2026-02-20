@@ -3,11 +3,13 @@ import { open } from 'react-native-quick-sqlite';
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface DocumentRecord {
-  id: number;
+  id?: number;
+  title?: string; // Newly added for Document matching
   content: string;
   filePath: string;
-  category: string;
-  detection_type: 'TEXT' | 'OBJECT' | 'EMPTY';
+  type: 'IMAGE' | 'DOCUMENT';
+  detection_type: 'TEXT' | 'OBJECT';
+  timestamp: number;
 }
 
 // ─── Singleton DB ───────────────────────────────────────────────────────────
@@ -46,17 +48,20 @@ export const setupDatabase = () => {
     db.execute(`
       CREATE TABLE IF NOT EXISTS document_index (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
         content TEXT,
         filePath TEXT UNIQUE,
-        category TEXT,
-        detection_type TEXT DEFAULT 'TEXT'
+        type TEXT DEFAULT 'IMAGE',
+        detection_type TEXT DEFAULT 'TEXT',
+        timestamp INTEGER
       );
     `);
 
-    // Add column if upgrading from old schema (safe to run even if column exists)
-    try {
-      db.execute(`ALTER TABLE document_index ADD COLUMN detection_type TEXT DEFAULT 'TEXT';`);
-    } catch (_) { /* column already exists — ignore */ }
+    // Add columns if upgrading from old schema (safe to run even if column exists)
+    try { db.execute(`ALTER TABLE document_index ADD COLUMN title TEXT;`); } catch (_) { }
+    try { db.execute(`ALTER TABLE document_index ADD COLUMN type TEXT DEFAULT 'IMAGE';`); } catch (_) { }
+    try { db.execute(`ALTER TABLE document_index ADD COLUMN detection_type TEXT DEFAULT 'TEXT';`); } catch (_) { }
+    try { db.execute(`ALTER TABLE document_index ADD COLUMN timestamp INTEGER;`); } catch (_) { }
 
     // Try FTS5 (may not be compiled into this SQLite build)
     try {
@@ -116,30 +121,45 @@ export const isFileIndexed = (path: string): boolean => {
 };
 
 export const indexDocument = (
-  text: string,
-  path: string,
-  category: string = 'General',
-  detectionType: 'TEXT' | 'OBJECT' | 'EMPTY' = 'TEXT',
+  title: string | null = null,
+  content: string,
+  filePath: string,
+  type: 'IMAGE' | 'DOCUMENT',
+  detection_type: 'TEXT' | 'OBJECT'
 ) => {
+  if (!content.trim() && !title?.trim()) {
+    console.log('[DB] Skipped empty indexing for:', filePath);
+    return;
+  }
+
   try {
     const db = getDb();
-    if (_ftsAvailable) {
-      // DELETE first so the FTS trigger fires, then INSERT
-      db.execute('DELETE FROM document_index WHERE filePath = ?', [path]);
-      db.execute(
-        'INSERT INTO document_index (content, filePath, category, detection_type) VALUES (?, ?, ?, ?)',
-        [text.trim(), path, category, detectionType]
-      );
-    } else {
-      // No triggers — use INSERT OR REPLACE directly
-      db.execute(
-        'INSERT OR REPLACE INTO document_index (content, filePath, category, detection_type) VALUES (?, ?, ?, ?)',
-        [text.trim(), path, category, detectionType]
-      );
-    }
+    // Always DELETE first to ensure FTS triggers fire correctly for updates
+    db.execute('DELETE FROM document_index WHERE filePath = ?', [filePath]);
+    db.execute(
+      'INSERT INTO document_index (title, content, filePath, type, detection_type, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+      [title, content.trim(), filePath, type, detection_type, Date.now()]
+    );
+    console.log(`[DB] Indexed ✅ [${type}] ${filePath}`);
   } catch (e) {
     console.error('[DB] Save Failed:', e);
   }
+};
+
+/**
+ * Helper to process query results into DocumentRecord array.
+ */
+const processResults = (result: any): DocumentRecord[] => {
+  const rows = result?.rows?._array || (result?.rows ? Array.from(result.rows) : []);
+  return rows.map((row: any) => ({
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    filePath: row.filePath,
+    type: row.type,
+    detection_type: row.detection_type,
+    timestamp: row.timestamp,
+  })) as DocumentRecord[];
 };
 
 /**
@@ -152,28 +172,25 @@ export const searchDocuments = (query: string): DocumentRecord[] => {
     const trimmed = query.trim();
     if (!trimmed) return [];
 
-    let rows: any[] = [];
+    let results: DocumentRecord[] = [];
+    const safeQuery = trimmed.replace(/[^\w\s-]/g, '').trim(); // Strip out SQLite special characters
 
-    // Try FTS5 first if available
-    if (_ftsAvailable) {
+    if (_ftsAvailable && safeQuery) {
       try {
-        // Strip out SQLite special characters that break MATCH queries
-        const safeQuery = trimmed.replace(/[^\w\s-]/g, '').trim();
-        if (safeQuery) {
-          const ftsResults = db.execute(
-            `SELECT d.id, d.content, d.filePath, d.category, d.detection_type
-             FROM fts_index f
-             JOIN document_index d ON d.id = f.rowid
-             WHERE fts_index MATCH ?
-             ORDER BY rank
-             LIMIT 50`,
-            [`"${safeQuery}"*`]
-          );
-          rows = ftsResults?.rows?._array || (ftsResults?.rows ? Array.from(ftsResults.rows) : []);
-          if (rows.length > 0) {
-            console.log(`[DB] FTS5 Search for "${safeQuery}" took ${Date.now() - t0}ms. Found ${rows.length} hits.`);
-            return rows as DocumentRecord[];
-          }
+        // Prioritize title matches using FTS5 weighting (e.g., standard MATCH behavior finds both, but we can return title)
+        const ftsResults = db.execute(
+          `SELECT d.id, d.title, d.content, d.filePath, d.type, d.detection_type, d.timestamp
+           FROM fts_index f
+           JOIN document_index d ON d.id = f.rowid
+           WHERE f.fts_index MATCH ?
+           ORDER BY rank
+           LIMIT 50`,
+          [`"${safeQuery}"*`]
+        );
+        results = processResults(ftsResults);
+        if (results.length > 0) {
+          console.log(`[DB] FTS5 Search for "${safeQuery}" took ${Date.now() - t0}ms. Found ${results.length} hits.`);
+          return results;
         }
       } catch (err) {
         console.warn(`[DB] FTS5 matches failed for query "${trimmed}":`, err);
@@ -183,13 +200,13 @@ export const searchDocuments = (query: string): DocumentRecord[] => {
     // Fallback: LIKE search
     // Using COLLATE NOCASE is vastly faster than LOWER(content)
     const likeResults = db.execute(
-      `SELECT * FROM document_index WHERE content LIKE ? COLLATE NOCASE LIMIT 50`,
+      `SELECT d.id, d.title, d.content, d.filePath, d.type, d.detection_type, d.timestamp FROM document_index d WHERE content LIKE ? COLLATE NOCASE LIMIT 50`,
       [`%${trimmed}%`]
     );
-    rows = likeResults?.rows?._array || (likeResults?.rows ? Array.from(likeResults.rows) : []);
+    results = processResults(likeResults);
 
-    console.log(`[DB] LIKE Search for "${trimmed}" took ${Date.now() - t0}ms. Found ${rows.length} hits.`);
-    return rows as DocumentRecord[];
+    console.log(`[DB] LIKE Search for "${trimmed}" took ${Date.now() - t0}ms. Found ${results.length} hits.`);
+    return results;
   } catch (e) {
     console.error(`[DB] Search Failed after ${Date.now() - t0}ms:`, e);
     return [];

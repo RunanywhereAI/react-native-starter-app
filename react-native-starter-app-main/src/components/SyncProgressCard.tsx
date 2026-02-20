@@ -7,10 +7,14 @@ interface SyncProps {
   isSyncing: boolean;
   isPaused: boolean;
   isDeepSync: boolean;
+  isSyncingDocs: boolean;
   syncCount: number;
+  docSyncCount: number;
   totalImages?: number;
+  totalDocs?: number;
   onQuickSync: () => void;
   onDeepSync: () => void;
+  onSyncDocs: () => void;
   onPauseSync: () => void;
   onResumeSync: () => void;
 }
@@ -19,39 +23,46 @@ export const SyncProgressCard: React.FC<SyncProps> = ({
   isSyncing,
   isPaused,
   isDeepSync,
+  isSyncingDocs,
   syncCount,
+  docSyncCount,
   totalImages = 0,
+  totalDocs = 0,
   onQuickSync,
   onDeepSync,
+  onSyncDocs,
   onPauseSync,
   onResumeSync,
 }) => {
   const getTitle = () => {
+    if (isSyncingDocs) return '📄 Syncing Documents...';
     if (isPaused) return '⏸ Deep Sync Paused';
     if (isSyncing && isDeepSync) return '🔎 Deep Scanning...';
     if (isSyncing) return '⚡ Quick Sync...';
-    if (syncCount > 0) return `✅ ${syncCount} photos indexed`;
-    return '📸 Sync Gallery';
+    if (syncCount > 0 || docSyncCount > 0) return `✅ ${syncCount + docSyncCount} items indexed`;
+    return 'Universal Local Sync';
   };
 
   const getSubtitle = () => {
+    if (isSyncingDocs && totalDocs > 0) return `Indexed ${docSyncCount} of ${totalDocs} documents`;
+    if (isSyncingDocs) return `Indexing documents...`;
     if (isPaused) return `Saved at ${syncCount} — tap Resume to continue`;
     if (isSyncing && totalImages > 0) return `Indexed ${syncCount} of ${totalImages} photos`;
     if (isSyncing) return `Indexed ${syncCount} photos so far`;
-    if (syncCount > 0) return 'Quick sync done. Run Deep Sync for full library.';
-    return 'Quick = first 300 • Deep = entire gallery';
+    return 'Photos batch sync or Document selection';
   };
 
   // Compute fill percentage
   const getProgress = (): number => {
-    if (!isSyncing && !isPaused) return syncCount > 0 ? 1 : 0;
+    if (isSyncingDocs) return totalDocs > 0 ? Math.min(docSyncCount / totalDocs, 1) : 0.5;
+    if (!isSyncing && !isPaused) return (syncCount > 0 || docSyncCount > 0) ? 1 : 0;
     if (totalImages > 0) return Math.min(syncCount / totalImages, 1);
     // Indeterminate: pulse between 30-70%
     return 0.5;
   };
 
   const progress = getProgress();
-  const isIndeterminate = (isSyncing || isPaused) && totalImages === 0;
+  const isIndeterminate = ((isSyncing || isPaused) && totalImages === 0) || (isSyncingDocs && totalDocs === 0);
 
   return (
     <View style={styles.card}>
@@ -59,7 +70,7 @@ export const SyncProgressCard: React.FC<SyncProps> = ({
         colors={
           isPaused
             ? ['rgba(255,165,0,0.15)', 'rgba(255,165,0,0.05)']
-            : isDeepSync && isSyncing
+            : (isDeepSync && isSyncing) || isSyncingDocs
               ? ['rgba(138,43,226,0.15)', 'rgba(138,43,226,0.05)']
               : ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']
         }
@@ -74,7 +85,7 @@ export const SyncProgressCard: React.FC<SyncProps> = ({
         </View>
 
         {/* Progress bar */}
-        {(isSyncing || isPaused) && (
+        {(isSyncing || isPaused || isSyncingDocs) && (
           <View style={styles.track}>
             <View
               style={[
@@ -83,7 +94,7 @@ export const SyncProgressCard: React.FC<SyncProps> = ({
                   width: isIndeterminate ? '50%' : `${Math.round(progress * 100)}%`,
                   backgroundColor: isPaused
                     ? '#FFA500'
-                    : isDeepSync
+                    : isDeepSync || isSyncingDocs
                       ? AppColors.accentViolet
                       : AppColors.accentCyan,
                 },
@@ -94,14 +105,14 @@ export const SyncProgressCard: React.FC<SyncProps> = ({
 
         {/* Action buttons */}
         <View style={styles.actions}>
-          {isSyncing ? (
+          {(isSyncing || isSyncingDocs) ? (
             <TouchableOpacity
               style={[styles.btn, styles.btnWarn]}
               onPress={onPauseSync}
               accessibilityLabel="Pause sync"
               accessibilityRole="button"
             >
-              <Text style={styles.btnText}>⏸ Pause</Text>
+              <Text style={styles.btnText}>{isSyncingDocs ? '⏳ Syncing' : '⏸ Pause'}</Text>
             </TouchableOpacity>
           ) : isPaused ? (
             <>
@@ -130,15 +141,15 @@ export const SyncProgressCard: React.FC<SyncProps> = ({
                 accessibilityLabel="Quick sync 300 recent photos"
                 accessibilityRole="button"
               >
-                <Text style={styles.btnText}>⚡ Quick (300)</Text>
+                <Text style={styles.btnText}>⚡ Photo Quick</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.btn, styles.btnDeep]}
-                onPress={onDeepSync}
-                accessibilityLabel="Deep sync entire gallery"
+                onPress={onSyncDocs}
+                accessibilityLabel="Sync new documents"
                 accessibilityRole="button"
               >
-                <Text style={styles.btnText}>🔎 Deep Sync</Text>
+                <Text style={styles.btnText}>📄 Sync Docs</Text>
               </TouchableOpacity>
             </>
           )}

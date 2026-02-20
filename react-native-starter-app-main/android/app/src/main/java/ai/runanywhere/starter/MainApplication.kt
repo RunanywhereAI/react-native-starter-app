@@ -11,7 +11,8 @@ import com.facebook.react.defaults.DefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.soloader.SoLoader
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
-import ai.runanywhere.starter.OCRPackage // <--- Add this
+import ai.runanywhere.starter.OCRPackage
+import ai.runanywhere.starter.StoragePackage // <--- Add this
 
 class MainApplication : Application(), ReactApplication {
 
@@ -22,6 +23,7 @@ class MainApplication : Application(), ReactApplication {
               // Add our custom NativeAudioModule for STT/TTS audio recording and playback
               add(NativeAudioPackage())
               add(OCRPackage())
+              add(StoragePackage())
             }
 
         override fun getJSMainModuleName(): String = "index"

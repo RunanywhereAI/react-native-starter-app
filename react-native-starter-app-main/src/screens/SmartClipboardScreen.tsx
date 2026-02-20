@@ -211,7 +211,7 @@ export const SmartClipboardScreen: React.FC = () => {
 
     const handleSave = () => {
         if (!editedText.trim() || !imageUri) return;
-        indexDocument(editedText.trim(), imageUri, 'Smart Clipboard', detectionType as any || 'TEXT');
+        indexDocument(null, editedText.trim(), imageUri, 'IMAGE', (detectionType as 'TEXT' | 'OBJECT') || 'TEXT');
         Vibration.vibrate(30);
         showToast('save');
     };

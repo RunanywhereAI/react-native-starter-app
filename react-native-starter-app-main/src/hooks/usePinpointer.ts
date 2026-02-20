@@ -7,6 +7,7 @@ import { analyzeImage } from '../utils/VisionPipeline';
 import { AppLogger } from '../utils/AppLogger';
 import { useSearch } from './useSearch';
 import { useGallerySync } from './useGallerySync';
+import { useDocumentSync } from './useDocumentSync';
 import { useVoiceRecording } from './useVoiceRecording';
 
 /**
@@ -31,6 +32,10 @@ export const usePinpointer = () => {
         handleQuickSync, handleDeepSync, handlePauseSync, handleResumeSync,
         loadPersistedCount,
     } = useGallerySync();
+
+    const {
+        isSyncingDocs, docSyncCount, totalDocs, handleDocumentSync
+    } = useDocumentSync();
 
     // Voice: deliver transcription into the search bar
     const onTranscription = useCallback((text: string) => {
@@ -91,7 +96,7 @@ export const usePinpointer = () => {
                     rawText || 'No readable text found'
                 );
 
-                indexDocument(indexableContent, imageUri, 'Manual Scan');
+                indexDocument(null, indexableContent, imageUri, 'IMAGE', 'TEXT');
 
                 Alert.alert(
                     'Scan Success',
@@ -128,6 +133,7 @@ export const usePinpointer = () => {
         // Sync
         isSyncing, isPaused, isDeepSync, syncCount, totalImages,
         handleQuickSync, handleDeepSync, handlePauseSync, handleResumeSync,
+        isSyncingDocs, docSyncCount, totalDocs, handleDocumentSync,
 
         // Actions
         handleScan, handleShare, handleEdit,
