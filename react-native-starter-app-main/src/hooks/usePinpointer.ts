@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Alert, Share, Linking } from 'react-native';
+import { Alert, Share, Linking, Platform, NativeModules } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { indexDocument } from '../Database';
 import { buildIndexableContent } from '../utils/TextEnrichment';
@@ -111,7 +111,13 @@ export const usePinpointer = () => {
 
     // --- Cross-cutting: Share & Edit ---
     const handleShare = useCallback(() => {
-        if (selectedImage) Share.share({ url: selectedImage });
+        if (!selectedImage) return;
+
+        if (Platform.OS === 'android' && NativeModules.StorageModule && NativeModules.StorageModule.shareImage) {
+            NativeModules.StorageModule.shareImage(selectedImage.replace('file://', ''));
+        } else {
+            Share.share({ url: selectedImage });
+        }
     }, [selectedImage]);
 
     const handleEdit = useCallback(() => {

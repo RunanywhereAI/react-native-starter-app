@@ -52,4 +52,27 @@ public class StorageModule extends ReactContextBaseJavaModule {
             e.printStackTrace();
         }
     }
+
+    @ReactMethod
+    public void shareImage(String absolutePath) {
+        try {
+            if (absolutePath.startsWith("file://")) {
+                absolutePath = absolutePath.substring(7);
+            }
+            java.io.File file = new java.io.File(absolutePath);
+            Uri contentUri = FileProvider.getUriForFile(getReactApplicationContext(), getReactApplicationContext().getPackageName() + ".fileprovider", file);
+            
+            Intent shareIntent = new Intent(Intent.ACTION_SEND);
+            shareIntent.setType("image/*");
+            shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
+            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            
+            Intent chooser = Intent.createChooser(shareIntent, "Share Image");
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            
+            getReactApplicationContext().startActivity(chooser);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 }

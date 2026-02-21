@@ -301,7 +301,33 @@ All AI processing happens **on-device**. No data is sent to external servers. Th
 - ✅ Your conversations never leave your device
 - ✅ No API keys or cloud services needed
 
-## 🐛 Troubleshooting
+### 🐛 Troubleshooting
+
+### "Path too long" / 260 Character Limit Error (Windows)
+When cloning or running `npm install` on Windows, you might hit the 260-character path limit because of deep `node_modules` folders.
+**Fix:** Open PowerShell as Administrator and enable Long Paths in Git and Windows:
+```powershell
+git config --system core.longpaths true
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+```
+*(You may need to restart your computer afterward)*
+
+### Random Gradle Build Failures / Corrupted Cache (Android)
+If a team member pulls new code or changes branches and gets weird Java/Kotlin compiling errors:
+```bash
+# Clear the Gradle cache and stop lingering daemons
+cd android
+./gradlew clean
+./gradlew --stop
+cd ..
+```
+Then try running `npx react-native run-android` again.
+
+### Metro Bundler Caching Issues (Stale Code)
+If you made changes but the app isn't updating, or it's crashing with a red screen about an old file:
+```bash
+npm start -- --reset-cache
+```
 
 ### "Could not connect to development server" (Android)
 This happens on physical Android devices because they can't reach `localhost` on your computer.
