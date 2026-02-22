@@ -30,11 +30,33 @@ import {
     Platform,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+import Svg, { Path, Circle } from 'react-native-svg';
 import { AppColors } from '../theme';
 import { usePinpointer } from '../hooks/usePinpointer';
 import { HomeScreen } from '../screens/HomeScreen';
 
 const { StorageModule } = NativeModules;
+
+// --- SVG Icons (from gallery.tsx) ---
+const ScanIcon = ({ size = 22, color = '#fff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Circle cx="11" cy="11" r="8" />
+    <Path d="M21 21l-4.35-4.35M11 8v6M8 11h6" />
+  </Svg>
+);
+
+const EditIcon = ({ size = 22, color = '#fff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+    <Path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
+  </Svg>
+);
+
+const ShareIcon = ({ size = 22, color = '#fff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
+  </Svg>
+);
 
 export const PinpointerScreen: React.FC = () => {
     const { width, height } = useWindowDimensions();
@@ -212,7 +234,7 @@ export const PinpointerScreen: React.FC = () => {
             if (isSearching) {
                 Keyboard.dismiss();
                 setIsSearching(false);
-                // Delay state clearing so the Animated.timing isn't dropped by 
+                // Delay state clearing so the Animated.timing isn't dropped by
                 // native layout shifts caused by unmounting the Results List
                 setTimeout(() => {
                     setSearchText('');
@@ -260,7 +282,7 @@ export const PinpointerScreen: React.FC = () => {
     const handleBackPress = () => {
         Keyboard.dismiss();
         setIsSearching(false);
-        // Delay state clearing so the Animated.timing isn't dropped by 
+        // Delay state clearing so the Animated.timing isn't dropped by
         // native layout shifts caused by unmounting the Results List
         setTimeout(() => {
             setSearchText('');
@@ -591,7 +613,7 @@ export const PinpointerScreen: React.FC = () => {
                                                         Keyboard.dismiss();
                                                         setIsSearching(false);
 
-                                                        // Delay state clearing so the Animated.timing isn't dropped by 
+                                                        // Delay state clearing so the Animated.timing isn't dropped by
                                                         // native layout shifts caused by unmounting the Results List
                                                         setTimeout(() => {
                                                             setSearchText('');
@@ -654,7 +676,7 @@ export const PinpointerScreen: React.FC = () => {
                                 accessibilityLabel="Scan image"
                                 accessibilityRole="button"
                             >
-                                <Text style={styles.headerIcon}>🔍</Text>
+                                <ScanIcon size={24} />
                             </TouchableOpacity>
                             <TouchableOpacity
                                 onPress={handleEdit}
@@ -662,14 +684,14 @@ export const PinpointerScreen: React.FC = () => {
                                 accessibilityLabel="Edit image"
                                 accessibilityRole="button"
                             >
-                                <Text style={styles.headerIcon}>✏️</Text>
+                                <EditIcon size={24} />
                             </TouchableOpacity>
                             <TouchableOpacity
                                 onPress={handleShare}
                                 accessibilityLabel="Share image"
                                 accessibilityRole="button"
                             >
-                                <Text style={styles.headerIcon}>📤</Text>
+                                <ShareIcon size={24} />
                             </TouchableOpacity>
                         </View>
                     </View>
