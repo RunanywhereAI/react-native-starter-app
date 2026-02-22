@@ -95,3 +95,20 @@ coverage/
 # Uncomment one:
 # package-lock.json
 # yarn.lock
+
+# Android build artifacts (critical for clean clones)
+android/app/build/
+android/.gradle/
+android/build/
+
+# AI Model assets (too large for GitHub, downloaded via postinstall)
+android/app/src/main/assets/models/
+
+# Debug dump files
+crash*.txt
+logcat*.txt
+tsc_*.txt
+eslint_*.json
+
+# Project audit artifacts (not needed in repo)
+final_project_audit.md

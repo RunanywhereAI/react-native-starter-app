@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import { performFullGallerySync, performQuickSync, loadSavedCursor } from '../utils/GallerySync';
 import { getIndexedCount } from '../Database';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppLogger } from '../utils/AppLogger';
 
 /**
@@ -13,15 +14,19 @@ export const useGallerySync = () => {
     const [isDeepSync, setIsDeepSync] = useState(false);
     const [syncCount, setSyncCount] = useState(0);
     const [totalImages, setTotalImages] = useState(0);
+    const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
     const cancelRef = useRef<boolean>(false);
 
     // Load persisted count on mount
-    const loadPersistedCount = useCallback(() => {
+    const loadPersistedCount = useCallback(async () => {
         try {
             const count = getIndexedCount();
             if (count > 0) setSyncCount(count);
+
+            const timeStr = await AsyncStorage.getItem('gallery_last_sync_time');
+            if (timeStr) setLastSyncTime(parseInt(timeStr, 10));
         } catch (e) {
-            AppLogger.warn('GallerySync', 'Failed to load persisted count', e);
+            AppLogger.warn('GallerySync', 'Failed to load persisted state', e);
         }
     }, []);
 
@@ -56,6 +61,9 @@ export const useGallerySync = () => {
                 setIsPaused(true);
             } else {
                 setIsPaused(false);
+                const now = Date.now();
+                setLastSyncTime(now);
+                await AsyncStorage.setItem('gallery_last_sync_time', now.toString());
                 Alert.alert('Gallery Indexed', `Done! ${processed} photos indexed for AI search.`);
             }
         } catch (error) {
@@ -82,7 +90,9 @@ export const useGallerySync = () => {
             );
 
             setIsSyncing(false);
-            Alert.alert('Quick Sync Done', `Indexed ${processed} recent photos. Run Deep Sync for full library.`);
+            const now = Date.now();
+            setLastSyncTime(now);
+            await AsyncStorage.setItem('gallery_last_sync_time', now.toString());
         } catch (e) {
             AppLogger.error('GallerySync', 'Quick sync failed', e);
             setIsSyncing(false);
@@ -105,7 +115,7 @@ export const useGallerySync = () => {
     }, [runSync]);
 
     return {
-        isSyncing, isPaused, isDeepSync, syncCount, totalImages,
+        isSyncing, isPaused, isDeepSync, syncCount, totalImages, lastSyncTime,
         handleQuickSync, handleDeepSync, handlePauseSync, handleResumeSync,
         loadPersistedCount,
     };

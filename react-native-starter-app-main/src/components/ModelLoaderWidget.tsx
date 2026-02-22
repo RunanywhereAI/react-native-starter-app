@@ -29,7 +29,6 @@ export const ModelLoaderWidget: React.FC<ModelLoaderWidgetProps> = ({
   onLoad,
 }) => {
   const getIconEmoji = () => {
-    if (title.includes('LLM')) return '🤖';
     if (title.includes('STT')) return '🎤';
     if (title.includes('TTS')) return '🔊';
     if (title.includes('Voice')) return '✨';
@@ -51,7 +50,7 @@ export const ModelLoaderWidget: React.FC<ModelLoaderWidgetProps> = ({
             <ActivityIndicator size="large" color={accentColor} />
             <Text style={styles.loadingText}>
               {isDownloading
-                ? `Downloading... ${Math.round(progress)}%`
+                ? `📦 Unpacking Asset... ${Math.round(progress)}%`
                 : 'Loading model...'}
             </Text>
             {isDownloading && (
@@ -71,12 +70,12 @@ export const ModelLoaderWidget: React.FC<ModelLoaderWidgetProps> = ({
         )}
 
         {!isDownloading && !isLoading && (
-          <TouchableOpacity 
-            onPress={onLoad} 
+          <TouchableOpacity
+            onPress={onLoad}
             activeOpacity={0.8}
             style={[styles.button, { backgroundColor: accentColor }]}
           >
-            <Text style={styles.buttonText}>Download & Load Model</Text>
+            <Text style={styles.buttonText}>Unpack Local Model</Text>
           </TouchableOpacity>
         )}
 

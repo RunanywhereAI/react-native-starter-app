@@ -3,6 +3,7 @@ export type RootStackParamList = {
   SpeechToText: undefined;
   TextToSpeech: undefined;
   Pinpointer: { startUniversalSync?: boolean } | undefined;
-  SmartClipboard: undefined;
+  SmartClipboard: { scanUri?: string } | undefined;
   PointAndSpeak: undefined;
+  Gallery: undefined;
 };

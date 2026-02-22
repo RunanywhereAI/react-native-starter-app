@@ -1,10 +1,6 @@
 import { soundexAll } from './Soundex';
 import { enrichHindi, containsDevanagari } from './HindiTranslit';
 
-// ─── LLM-ready state (still used if someone opts in later) ───────────────────
-let _llmReady: boolean | null = null;
-export const markLLMReady = () => { _llmReady = true; };
-
 /**
  * Builds a 3-part multilingual search index for any detected text.
  *

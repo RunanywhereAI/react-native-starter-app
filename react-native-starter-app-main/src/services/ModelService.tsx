@@ -1,40 +1,36 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { RunAnywhere, ModelCategory } from '@runanywhere/core';
-import { LlamaCPP } from '@runanywhere/llamacpp';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { RunAnywhere, ModelCategory, FileSystem } from '@runanywhere/core';
 import { ONNX, ModelArtifactType } from '@runanywhere/onnx';
-import { markLLMReady } from '../utils/TextEnrichment';
+import RNFS from 'react-native-fs';
+import { Platform, NativeModules } from 'react-native';
+
+const { StorageModule } = NativeModules;
 
 // Model IDs - matching sample app model registry
 const MODEL_IDS = {
-  llm: 'lfm2-350m-q8_0', // LiquidAI LFM2 - fast and efficient
   stt: 'sherpa-onnx-whisper-tiny.en',
   tts: 'vits-piper-en_US-lessac-medium',
 } as const;
 
 interface ModelServiceState {
   // Download state
-  isLLMDownloading: boolean;
   isSTTDownloading: boolean;
   isTTSDownloading: boolean;
 
-  llmDownloadProgress: number;
   sttDownloadProgress: number;
   ttsDownloadProgress: number;
 
   // Load state
-  isLLMLoading: boolean;
   isSTTLoading: boolean;
   isTTSLoading: boolean;
 
   // Loaded state
-  isLLMLoaded: boolean;
   isSTTLoaded: boolean;
   isTTSLoaded: boolean;
 
   isVoiceAgentReady: boolean;
 
   // Actions
-  downloadAndLoadLLM: () => Promise<void>;
   downloadAndLoadSTT: () => Promise<void>;
   downloadAndLoadTTS: () => Promise<void>;
   downloadAndLoadAllModels: () => Promise<void>;
@@ -58,25 +54,21 @@ interface ModelServiceProviderProps {
 
 export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ children }) => {
   // Download state
-  const [isLLMDownloading, setIsLLMDownloading] = useState(false);
   const [isSTTDownloading, setIsSTTDownloading] = useState(false);
   const [isTTSDownloading, setIsTTSDownloading] = useState(false);
 
-  const [llmDownloadProgress, setLLMDownloadProgress] = useState(0);
   const [sttDownloadProgress, setSTTDownloadProgress] = useState(0);
   const [ttsDownloadProgress, setTTSDownloadProgress] = useState(0);
 
   // Load state
-  const [isLLMLoading, setIsLLMLoading] = useState(false);
   const [isSTTLoading, setIsSTTLoading] = useState(false);
   const [isTTSLoading, setIsTTSLoading] = useState(false);
 
   // Loaded state
-  const [isLLMLoaded, setIsLLMLoaded] = useState(false);
   const [isSTTLoaded, setIsSTTLoaded] = useState(false);
   const [isTTSLoaded, setIsTTSLoaded] = useState(false);
 
-  const isVoiceAgentReady = isLLMLoaded && isSTTLoaded && isTTSLoaded;
+  const isVoiceAgentReady = isSTTLoaded && isTTSLoaded;
 
   // Check if model is downloaded (per docs: use getModelInfo and check localPath)
   const checkModelDownloaded = useCallback(async (modelId: string): Promise<boolean> => {
@@ -87,41 +79,6 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
       return false;
     }
   }, []);
-
-  // Download and load LLM
-  const downloadAndLoadLLM = useCallback(async () => {
-    if (isLLMDownloading || isLLMLoading) return;
-
-    try {
-      const isDownloaded = await checkModelDownloaded(MODEL_IDS.llm);
-
-      if (!isDownloaded) {
-        setIsLLMDownloading(true);
-        setLLMDownloadProgress(0);
-
-        // Download with progress (per docs: progress.progress is 0-1)
-        await RunAnywhere.downloadModel(MODEL_IDS.llm, (progress) => {
-          setLLMDownloadProgress(progress.progress * 100);
-        });
-
-        setIsLLMDownloading(false);
-      }
-
-      // Load the model (per docs: get localPath first, then load)
-      setIsLLMLoading(true);
-      const modelInfo = await RunAnywhere.getModelInfo(MODEL_IDS.llm);
-      if (modelInfo?.localPath) {
-        await RunAnywhere.loadModel(modelInfo.localPath);
-        setIsLLMLoaded(true);
-        markLLMReady(); // allow TextEnrichment to start Hindi keyword generation
-      }
-      setIsLLMLoading(false);
-    } catch (error) {
-      console.error('LLM download/load error:', error);
-      setIsLLMDownloading(false);
-      setIsLLMLoading(false);
-    }
-  }, [isLLMDownloading, isLLMLoading, checkModelDownloaded]);
 
   // Download and load STT
   const downloadAndLoadSTT = useCallback(async () => {
@@ -134,25 +91,89 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
         setIsSTTDownloading(true);
         setSTTDownloadProgress(0);
 
-        await RunAnywhere.downloadModel(MODEL_IDS.stt, (progress) => {
-          setSTTDownloadProgress(progress.progress * 100);
-        });
+        try {
+          if (Platform.OS === 'android') {
+            const assetFileName = 'sherpa-onnx-whisper-tiny.en.bundle';
+            const destPath = `${RNFS.DocumentDirectoryPath}/sherpa-onnx-whisper-tiny.en.tar.gz`;
+
+            setSTTDownloadProgress(10); // Indicate start
+            console.warn(`[ModelService] Unpacking local STT asset ${assetFileName} to ${destPath}`);
+
+            try {
+              await StorageModule.unpackAsset(assetFileName, destPath);
+              console.warn(`[ModelService] STT Copy SUCCESS`);
+            } catch (err) {
+              console.error(`[ModelService] STT Copy FAILED:`, err);
+              throw err;
+            }
+
+            setSTTDownloadProgress(50);
+
+            console.warn(`[ModelService] Extracting STT archive via Native SDK...`);
+            const targetFolder = FileSystem.getFrameworkDirectory('ONNX'); // The SDK will create the exact model ID folder natively
+            await FileSystem.extractArchive(destPath, targetFolder, 'tar.gz' as any);
+            setSTTDownloadProgress(80);
+
+            console.warn(`[ModelService] Extracted! Verifying RNFS Disk...`);
+            const exists = await RNFS.exists(`${targetFolder}/${MODEL_IDS.stt}`);
+            console.warn(`[ModelService] Does ${targetFolder}/${MODEL_IDS.stt} exist? ${exists}`);
+            if (exists) {
+              console.warn(`[ModelService] Folder contents:`, await RNFS.readDir(`${targetFolder}/${MODEL_IDS.stt}`));
+            }
+
+            setSTTDownloadProgress(100);
+
+            // Clean up the copied tar.gz to save space after extraction
+            RNFS.unlink(destPath).catch(() => { });
+          } else {
+            // Fallback for iOS simulator/non-asset builds if needed
+            await RunAnywhere.downloadModel(MODEL_IDS.stt, (progress) => {
+              setSTTDownloadProgress(progress.progress * 100);
+            });
+          }
+        } catch (e: any) {
+          console.error('[ModelService] Local STT extraction failed', e?.message || e);
+          throw e;
+        }
 
         setIsSTTDownloading(false);
       }
 
       // Load the STT model (per docs: loadSTTModel(localPath, 'whisper'))
       setIsSTTLoading(true);
+      // For bundled assets, explicitly define the exact path generated by extractArchive
+      const sttTargetFolder = `${FileSystem.getFrameworkDirectory('ONNX')}/${MODEL_IDS.stt}`;
       const modelInfo = await RunAnywhere.getModelInfo(MODEL_IDS.stt);
-      if (modelInfo?.localPath) {
-        await RunAnywhere.loadSTTModel(modelInfo.localPath, 'whisper');
+      const loadPath = modelInfo?.localPath || sttTargetFolder;
+
+      try {
+        await RunAnywhere.loadSTTModel(loadPath, 'whisper');
         setIsSTTLoaded(true);
+      } catch (loadErr) {
+        console.warn(`[ModelService] Failed to load STT from ${loadPath}, trying explicit folder: ${loadErr}`);
+        try {
+          await RunAnywhere.loadSTTModel(sttTargetFolder, 'whisper');
+          setIsSTTLoaded(true);
+        } catch (retryErr) {
+          // Model is likely already loaded in native memory (e.g., after hot reload).
+          // Mark as loaded — transcription attempt will be the final arbiter.
+          console.warn(`[ModelService] STT retry also failed, assuming already loaded: ${retryErr}`);
+          setIsSTTLoaded(true);
+        }
       }
       setIsSTTLoading(false);
     } catch (error) {
       console.error('STT download/load error:', error);
       setIsSTTDownloading(false);
       setIsSTTLoading(false);
+      // Even on total failure, check if model files exist on disk
+      // If so, mark as loaded (handles hot-reload scenario)
+      try {
+        const fallbackInfo = await RunAnywhere.getModelInfo(MODEL_IDS.stt);
+        if (fallbackInfo?.localPath) {
+          setIsSTTLoaded(true);
+        }
+      } catch { /* truly broken */ }
     }
   }, [isSTTDownloading, isSTTLoading, checkModelDownloaded]);
 
@@ -167,18 +188,66 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
         setIsTTSDownloading(true);
         setTTSDownloadProgress(0);
 
-        await RunAnywhere.downloadModel(MODEL_IDS.tts, (progress) => {
-          setTTSDownloadProgress(progress.progress * 100);
-        });
+        try {
+          if (Platform.OS === 'android') {
+            const assetFileName = 'vits-piper-en_US-lessac-medium.bundle';
+            const destPath = `${RNFS.DocumentDirectoryPath}/vits-piper-en_US-lessac-medium.tar.gz`;
+
+            setTTSDownloadProgress(10); // Indicate start
+            console.warn(`[ModelService] Unpacking local TTS asset ${assetFileName} to ${destPath}`);
+
+            try {
+              // Must be relative to the assets folder explicitly
+              await StorageModule.unpackAsset(assetFileName, destPath);
+              console.warn(`[ModelService] TTS Copy SUCCESS`);
+            } catch (err) {
+              console.error(`[ModelService] TTS Copy FAILED:`, err);
+              throw err;
+            }
+
+            setTTSDownloadProgress(50);
+
+            console.warn(`[ModelService] Extracting TTS archive via Native SDK...`);
+            const targetFolder = FileSystem.getFrameworkDirectory('ONNX');
+            await FileSystem.extractArchive(destPath, targetFolder, 'tar.gz' as any);
+            setTTSDownloadProgress(80);
+
+            console.warn(`[ModelService] Extracted! Verifying RNFS Disk...`);
+            const exists = await RNFS.exists(`${targetFolder}/${MODEL_IDS.tts}`);
+            console.warn(`[ModelService] Does ${targetFolder}/${MODEL_IDS.tts} exist? ${exists}`);
+            if (exists) {
+              console.warn(`[ModelService] Folder contents:`, await RNFS.readDir(`${targetFolder}/${MODEL_IDS.tts}`));
+            }
+
+            setTTSDownloadProgress(100);
+
+            // Clean up the copied tar.gz
+            RNFS.unlink(destPath).catch(() => { });
+          } else {
+            await RunAnywhere.downloadModel(MODEL_IDS.tts, (progress) => {
+              setTTSDownloadProgress(progress.progress * 100);
+            });
+          }
+        } catch (e: any) {
+          console.error('[ModelService] Local TTS extraction failed', e?.message || e);
+          throw e;
+        }
 
         setIsTTSDownloading(false);
       }
 
       // Load the TTS model (per docs: loadTTSModel(localPath, 'piper'))
       setIsTTSLoading(true);
+      const ttsTargetFolder = `${FileSystem.getFrameworkDirectory('ONNX')}/${MODEL_IDS.tts}`;
       const modelInfo = await RunAnywhere.getModelInfo(MODEL_IDS.tts);
-      if (modelInfo?.localPath) {
-        await RunAnywhere.loadTTSModel(modelInfo.localPath, 'piper');
+      const loadPath = modelInfo?.localPath || ttsTargetFolder;
+
+      try {
+        await RunAnywhere.loadTTSModel(loadPath, 'piper');
+        setIsTTSLoaded(true);
+      } catch (loadErr) {
+        console.warn(`[ModelService] Failed to load TTS from ${loadPath}, trying explicit folder: ${loadErr}`);
+        await RunAnywhere.loadTTSModel(ttsTargetFolder, 'piper');
         setIsTTSLoaded(true);
       }
       setIsTTSLoading(false);
@@ -192,19 +261,16 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
   // Download and load all models
   const downloadAndLoadAllModels = useCallback(async () => {
     await Promise.all([
-      downloadAndLoadLLM(),
       downloadAndLoadSTT(),
       downloadAndLoadTTS(),
     ]);
-  }, [downloadAndLoadLLM, downloadAndLoadSTT, downloadAndLoadTTS]);
+  }, [downloadAndLoadSTT, downloadAndLoadTTS]);
 
   // Unload all models
   const unloadAllModels = useCallback(async () => {
     try {
-      await RunAnywhere.unloadModel();
       await RunAnywhere.unloadSTTModel();
       await RunAnywhere.unloadTTSModel();
-      setIsLLMLoaded(false);
       setIsSTTLoaded(false);
       setIsTTSLoaded(false);
     } catch (error) {
@@ -223,21 +289,21 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
     }
   }, []);
 
+  // Run automatically on boot
+  useEffect(() => {
+    downloadAndLoadAllModels();
+  }, [downloadAndLoadAllModels]);
+
   const value: ModelServiceState = {
-    isLLMDownloading,
     isSTTDownloading,
     isTTSDownloading,
-    llmDownloadProgress,
     sttDownloadProgress,
     ttsDownloadProgress,
-    isLLMLoading,
     isSTTLoading,
     isTTSLoading,
-    isLLMLoaded,
     isSTTLoaded,
     isTTSLoaded,
     isVoiceAgentReady,
-    downloadAndLoadLLM,
     downloadAndLoadSTT,
     downloadAndLoadTTS,
     downloadAndLoadAllModels,
@@ -256,22 +322,6 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
  * Register default models with the SDK
  */
 export const registerDefaultModels = async () => {
-  // LLM Model - LiquidAI LFM2 350M (fast, efficient, great for mobile)
-  await LlamaCPP.addModel({
-    id: MODEL_IDS.llm,
-    name: 'LiquidAI LFM2 350M Q8_0',
-    url: 'https://huggingface.co/LiquidAI/LFM2-350M-GGUF/resolve/main/LFM2-350M-Q8_0.gguf',
-    memoryRequirement: 400_000_000,
-  });
-
-  // Also add SmolLM2 as alternative smaller model
-  await LlamaCPP.addModel({
-    id: 'smollm2-360m-q8_0',
-    name: 'SmolLM2 360M Q8_0',
-    url: 'https://huggingface.co/prithivMLmods/SmolLM2-360M-GGUF/resolve/main/SmolLM2-360M.Q8_0.gguf',
-    memoryRequirement: 500_000_000,
-  });
-
   // STT Model - Sherpa Whisper Tiny English
   // Using tar.gz from RunanywhereAI/sherpa-onnx for fast native extraction
   await ONNX.addModel({

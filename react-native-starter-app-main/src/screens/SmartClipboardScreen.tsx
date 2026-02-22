@@ -14,14 +14,65 @@ import {
     Vibration,
     Platform,
     Modal,
+    NativeModules,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+import RNFS from 'react-native-fs';
+import { RunAnywhere } from '@runanywhere/core';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import Svg, { Path, Rect, Circle } from 'react-native-svg';
 import { AppColors } from '../theme';
 import { analyzeImage } from '../utils/VisionPipeline';
 import { buildIndexableContent } from '../utils/TextEnrichment';
 import { indexDocument } from '../Database';
 import Clipboard from '@react-native-clipboard/clipboard';
+import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
+import { RootStackParamList } from '../navigation/types';
+
+const { NativeAudioModule } = NativeModules;
+
+// ─── Clipboard Icon Component ────────────────────────────────────────────────
+const ClipboardIcon: React.FC<{ size?: number; color?: string }> = ({
+    size = 56,
+    color = '#00D9FF',
+}) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Rect x="5" y="4" width="14" height="17" rx="2" stroke={color} strokeWidth="2" fill="none" />
+        <Path d="M9 2h6a1 1 0 0 1 1 1v2H8V3a1 1 0 0 1 1-1z" fill={color} />
+        <Path d="M8 10h8M8 14h8M8 18h5" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </Svg>
+);
+
+// ─── Modern Speaker Icon (SVG) ───────────────────────────────────────────────
+const SpeakerIconSVG: React.FC<{ size?: number; color?: string }> = ({
+    size = 22,
+    color = '#00D9FF',
+}) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path
+            d="M11 5L6 9H2V15H6L11 19V5Z"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        />
+        <Path
+            d="M15.54 8.46a5 5 0 0 1 0 7.07"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity="0.5"
+        />
+        <Path
+            d="M19.07 4.93a10 10 0 0 1 0 14.14"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        />
+    </Svg>
+);
 
 // ─── Clipboard History Item ──────────────────────────────────────────────────
 interface ClipboardItem {
@@ -35,16 +86,24 @@ interface ClipboardItem {
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 export const SmartClipboardScreen: React.FC = () => {
+    const route = useRoute<RouteProp<RootStackParamList, 'SmartClipboard'>>();
+    const navigation = useNavigation<any>();
+
     // --- State ---
-    const [imageUri, setImageUri] = useState<string | null>(null);
+    const [imageUri, setImageUri] = useState<string | null>(route.params?.scanUri || null);
     const [extractedText, setExtractedText] = useState('');
     const [editedText, setEditedText] = useState('');
-    const [isProcessing, setIsProcessing] = useState(false);
+    const [isProcessing, setIsProcessing] = useState<boolean>(!!route.params?.scanUri);
     const [detectionType, setDetectionType] = useState<string>('');
     const [clipHistory, setClipHistory] = useState<ClipboardItem[]>([]);
     const [showCopied, setShowCopied] = useState(false);
-    const [showSaved, setShowSaved] = useState(false);
+
     const [isImageModalVisible, setImageModalVisible] = useState(false);
+
+    // Audio TTS state
+    const [isSynthesizing, setIsSynthesizing] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentAudioPath, setCurrentAudioPath] = useState<string | null>(null);
 
     // Animations
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -72,9 +131,9 @@ export const SmartClipboardScreen: React.FC = () => {
     };
 
     // Toast animation
-    const showToast = (type: 'copy' | 'save') => {
+
+    const showToast = (type: 'copy') => {
         if (type === 'copy') setShowCopied(true);
-        else setShowSaved(true);
 
         toastAnim.setValue(0);
         Animated.sequence([
@@ -92,7 +151,6 @@ export const SmartClipboardScreen: React.FC = () => {
             }),
         ]).start(() => {
             setShowCopied(false);
-            setShowSaved(false);
         });
     };
 
@@ -111,16 +169,43 @@ export const SmartClipboardScreen: React.FC = () => {
                         duration: 800,
                         useNativeDriver: true,
                     }),
-                ]),
+                ])
             );
             pulse.start();
             return () => pulse.stop();
         }
     }, [isProcessing, pulseAnim]);
 
+    // Cleanup helper for audio
+    const stopTTSAndAudio = () => {
+        if (isSynthesizing) {
+            RunAnywhere.stopSynthesis().catch(() => { });
+            setIsSynthesizing(false);
+        }
+        if (isPlaying && NativeAudioModule) {
+            NativeAudioModule.stopPlayback().catch(() => { });
+            setIsPlaying(false);
+        }
+    };
+
+    // Auto-scan from route parameters (Deep Link from Pinpointer)
+    useEffect(() => {
+        if (route.params?.scanUri) {
+            const uriToScan = route.params.scanUri;
+            // Clear the param immediately so it doesn't re-trigger on back/forward
+            navigation.setParams({ scanUri: undefined });
+
+            // Small delay to let the screen transition finish before heavy OCR blocking
+            setTimeout(() => {
+                processImage(uriToScan);
+            }, 400);
+        }
+    }, [route.params?.scanUri]);
+
     // ─── Actions ─────────────────────────────────────────────────────────────
 
     const processImage = async (uri: string) => {
+        stopTTSAndAudio();
         setImageUri(uri);
         setIsProcessing(true);
         setExtractedText('');
@@ -134,7 +219,10 @@ export const SmartClipboardScreen: React.FC = () => {
                 setExtractedText('');
                 setEditedText('');
                 setDetectionType('EMPTY');
-                Alert.alert('No Text Found', 'Could not detect any text or objects in this image. Try a clearer photo.');
+                Alert.alert(
+                    'No Text Found',
+                    'Could not detect any text or objects in this image. Try a clearer photo.'
+                );
             } else {
                 setExtractedText(result.raw_text);
                 setEditedText(result.raw_text);
@@ -197,7 +285,7 @@ export const SmartClipboardScreen: React.FC = () => {
             timestamp: new Date(),
             imageUri: imageUri || undefined,
         };
-        setClipHistory(prev => [item, ...prev].slice(0, 20)); // keep last 20
+        setClipHistory((prev) => [item, ...prev].slice(0, 20)); // keep last 20
     };
 
     const handleShare = async () => {
@@ -211,12 +299,19 @@ export const SmartClipboardScreen: React.FC = () => {
 
     const handleSave = () => {
         if (!editedText.trim() || !imageUri) return;
-        indexDocument(null, editedText.trim(), imageUri, 'IMAGE', (detectionType as 'TEXT' | 'OBJECT') || 'TEXT');
+        indexDocument(
+            null,
+            editedText.trim(),
+            imageUri,
+            'IMAGE',
+            (detectionType as 'TEXT' | 'OBJECT') || 'TEXT'
+        );
         Vibration.vibrate(30);
-        showToast('save');
+        Alert.alert('Saved', 'Text has been saved to your library.');
     };
 
     const handleReset = () => {
+        stopTTSAndAudio();
         setImageUri(null);
         setExtractedText('');
         setEditedText('');
@@ -229,6 +324,69 @@ export const SmartClipboardScreen: React.FC = () => {
         showToast('copy');
     };
 
+    // Cleanup audio on unmount or blur
+    useEffect(() => {
+        const unsubscribe = navigation.addListener('blur', () => {
+            stopTTSAndAudio();
+        });
+
+        return () => {
+            unsubscribe();
+            stopTTSAndAudio();
+        };
+    }, [navigation, isPlaying, isSynthesizing]);
+
+    const handleSpeakText = async () => {
+        if (!editedText.trim()) return;
+
+        // Toggle stop if already playing
+        if (isPlaying && NativeAudioModule) {
+            NativeAudioModule.stopPlayback().catch(() => { });
+            setIsPlaying(false);
+            return;
+        }
+
+        setIsSynthesizing(true);
+        try {
+            const result = await RunAnywhere.synthesize(editedText.trim(), {
+                voice: 'default',
+                rate: 1.0,
+                pitch: 1.0,
+                volume: 1.0,
+            });
+
+            const tempPath = await RunAnywhere.Audio.createWavFromPCMFloat32(
+                result.audio,
+                result.sampleRate || 22050
+            );
+
+            setCurrentAudioPath(tempPath);
+            setIsSynthesizing(false);
+            setIsPlaying(true);
+
+            if (NativeAudioModule) {
+                try {
+                    const playResult = await NativeAudioModule.playAudio(tempPath);
+                    setTimeout(() => {
+                        setIsPlaying(false);
+                        setCurrentAudioPath(null);
+                        RNFS.unlink(tempPath).catch(() => { });
+                    }, (result.duration + 0.5) * 1000);
+                } catch (playError) {
+                    console.error('[SmartClipboard] Playback error:', playError);
+                    setIsPlaying(false);
+                }
+            } else {
+                setIsPlaying(false);
+            }
+        } catch (error) {
+            console.error('[SmartClipboard] TTS error:', error);
+            setIsSynthesizing(false);
+            setIsPlaying(false);
+            Alert.alert("Speech Error", "Could not generate speech right now.");
+        }
+    };
+
     // ─── Render: Landing State ────────────────────────────────────────────────
 
     const renderLanding = () => (
@@ -236,10 +394,10 @@ export const SmartClipboardScreen: React.FC = () => {
             {/* Hero Icon */}
             <View style={styles.heroSection}>
                 <LinearGradient
-                    colors={[AppColors.accentOrange + '20', AppColors.accentOrange + '05']}
+                    colors={[AppColors.accentCyan + '20', AppColors.accentCyan + '05']}
                     style={styles.heroGlow}
                 >
-                    <Text style={styles.heroIcon}>📋</Text>
+                    <ClipboardIcon size={60} color={AppColors.accentCyan} />
                 </LinearGradient>
                 <Text style={styles.heroTitle}>Smart Clipboard</Text>
                 <Text style={styles.heroSubtitle}>
@@ -251,12 +409,11 @@ export const SmartClipboardScreen: React.FC = () => {
             <View style={styles.actionButtons}>
                 <TouchableOpacity onPress={handleCamera} activeOpacity={0.85}>
                     <LinearGradient
-                        colors={[AppColors.accentOrange, '#E67E22']}
+                        colors={[AppColors.accentCyan, '#0891B2']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
                         style={styles.primaryButton}
                     >
-                        <Text style={styles.primaryButtonIcon}>📸</Text>
                         <Text style={styles.primaryButtonText}>Take Photo</Text>
                     </LinearGradient>
                 </TouchableOpacity>
@@ -266,18 +423,8 @@ export const SmartClipboardScreen: React.FC = () => {
                     activeOpacity={0.85}
                     style={styles.secondaryButton}
                 >
-                    <Text style={styles.secondaryButtonIcon}>🖼️</Text>
                     <Text style={styles.secondaryButtonText}>Pick from Gallery</Text>
                 </TouchableOpacity>
-            </View>
-
-            {/* Feature Pills */}
-            <View style={styles.featurePills}>
-                {['Hindi + English', 'Offline', 'Instant Copy'].map((label) => (
-                    <View key={label} style={styles.pill}>
-                        <Text style={styles.pillText}>{label}</Text>
-                    </View>
-                ))}
             </View>
 
             {/* Clipboard History */}
@@ -338,68 +485,68 @@ export const SmartClipboardScreen: React.FC = () => {
             <View style={styles.textCard}>
                 <View style={styles.textCardHeader}>
                     <Text style={styles.textCardTitle}>Extracted Text</Text>
+                    <TouchableOpacity
+                        style={styles.speakerButton}
+                        activeOpacity={0.7}
+                        onPress={handleSpeakText}
+                        disabled={isSynthesizing}
+                    >
+                        {isSynthesizing ? (
+                            <ActivityIndicator size="small" color={AppColors.accentCyan} />
+                        ) : (
+                            <SpeakerIconSVG color={isPlaying ? AppColors.accentPink : AppColors.accentCyan} />
+                        )}
+                    </TouchableOpacity>
+                </View>
+
+                <View style={styles.textEditorContainer}>
+                    <ScrollView style={styles.textEditorScroll} nestedScrollEnabled={true}>
+                        <TextInput
+                            style={styles.textEditor}
+                            value={editedText}
+                            onChangeText={setEditedText}
+                            multiline
+                            scrollEnabled={false}
+                            placeholder="No text extracted..."
+                            placeholderTextColor={AppColors.textMuted}
+                            selectionColor={AppColors.accentCyan}
+                        />
+                    </ScrollView>
+                </View>
+
+                {/* Character Count */}
+                <View style={styles.charCountContainer}>
                     <Text style={styles.charCount}>{editedText.length} chars</Text>
                 </View>
 
-                <TextInput
-                    style={styles.textEditor}
-                    value={editedText}
-                    onChangeText={setEditedText}
-                    multiline
-                    placeholder="No text extracted..."
-                    placeholderTextColor={AppColors.textMuted}
-                    selectionColor={AppColors.accentOrange}
-                />
-
                 {/* Action Bar */}
                 <View style={styles.actionBar}>
-                    <TouchableOpacity
-                        onPress={handleCopy}
-                        style={styles.actionButton}
-                        activeOpacity={0.7}
-                    >
-                        <LinearGradient
-                            colors={[AppColors.accentOrange, '#E67E22']}
-                            style={styles.actionButtonGradient}
-                        >
-                            <Text style={styles.actionIcon}>📋</Text>
-                            <Text style={styles.actionLabel}>Copy</Text>
-                        </LinearGradient>
-                    </TouchableOpacity>
+                    <View style={styles.actionRow}>
+                        <TouchableOpacity onPress={handleCopy} style={styles.actionButton} activeOpacity={0.7}>
+                            <LinearGradient
+                                colors={[AppColors.accentCyan, '#0891B2']}
+                                style={styles.actionButtonGradient}
+                            >
+                                <Text style={styles.actionLabel}>Copy</Text>
+                            </LinearGradient>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity onPress={handleShare} style={styles.actionButton} activeOpacity={0.7}>
+                            <View style={styles.actionButtonOutline}>
+                                <Text style={styles.actionLabelOutline}>Share</Text>
+                            </View>
+                        </TouchableOpacity>
+                    </View>
 
                     <TouchableOpacity
-                        onPress={handleShare}
-                        style={styles.actionButton}
+                        onPress={handleReset}
+                        style={styles.scanAnotherButton}
                         activeOpacity={0.7}
                     >
-                        <View style={styles.actionButtonOutline}>
-                            <Text style={styles.actionIcon}>📤</Text>
-                            <Text style={styles.actionLabelOutline}>Share</Text>
-                        </View>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        onPress={handleSave}
-                        style={styles.actionButton}
-                        activeOpacity={0.7}
-                    >
-                        <View style={styles.actionButtonOutline}>
-                            <Text style={styles.actionIcon}>💾</Text>
-                            <Text style={styles.actionLabelOutline}>Save</Text>
-                        </View>
+                        <Text style={styles.actionLabelOutline}>Scan Another</Text>
                     </TouchableOpacity>
                 </View>
             </View>
-
-            {/* New Scan Button */}
-            <TouchableOpacity
-                onPress={handleReset}
-                style={styles.newScanButton}
-                activeOpacity={0.7}
-            >
-                <Text style={styles.newScanIcon}>🔄</Text>
-                <Text style={styles.newScanText}>Scan Another</Text>
-            </TouchableOpacity>
         </Animated.View>
     );
 
@@ -409,27 +556,21 @@ export const SmartClipboardScreen: React.FC = () => {
         <View style={styles.processingContainer}>
             {imageUri && (
                 <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-                    <Image
-                        source={{ uri: imageUri }}
-                        style={styles.processingImage}
-                        resizeMode="cover"
-                    />
+                    <Image source={{ uri: imageUri }} style={styles.processingImage} resizeMode="cover" />
                     <View style={styles.processingOverlay}>
-                        <ActivityIndicator size="large" color={AppColors.accentOrange} />
+                        <ActivityIndicator size="large" color={AppColors.accentCyan} />
                     </View>
                 </Animated.View>
             )}
             <Text style={styles.processingText}>Extracting text...</Text>
-            <Text style={styles.processingSubtext}>
-                Running OCR (Hindi + English) on your image
-            </Text>
+            <Text style={styles.processingSubtext}>Running OCR (Hindi + English) on your image</Text>
         </View>
     );
 
     // ─── Toast ────────────────────────────────────────────────────────────────
 
     const renderToast = () => {
-        if (!showCopied && !showSaved) return null;
+        if (!showCopied) return null;
         return (
             <Animated.View
                 style={[
@@ -453,9 +594,7 @@ export const SmartClipboardScreen: React.FC = () => {
                     end={{ x: 1, y: 0 }}
                     style={styles.toastGradient}
                 >
-                    <Text style={styles.toastText}>
-                        {showCopied ? '✅ Copied to clipboard!' : '💾 Saved to index!'}
-                    </Text>
+                    <Text style={styles.toastText}>{showCopied ? '✅ Copied to clipboard!' : ''}</Text>
                 </LinearGradient>
             </Animated.View>
         );
@@ -531,7 +670,7 @@ const styles = StyleSheet.create({
     },
     heroSection: {
         alignItems: 'center',
-        paddingTop: 20,
+        paddingTop: 80,
         marginBottom: 40,
     },
     heroGlow: {
@@ -572,7 +711,7 @@ const styles = StyleSheet.create({
         paddingVertical: 18,
         borderRadius: 16,
         elevation: 6,
-        shadowColor: AppColors.accentOrange,
+        shadowColor: AppColors.accentCyan,
         shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 0.35,
         shadowRadius: 16,
@@ -593,17 +732,17 @@ const styles = StyleSheet.create({
         paddingVertical: 16,
         borderRadius: 16,
         borderWidth: 1.5,
-        borderColor: AppColors.accentOrange + '50',
-        backgroundColor: AppColors.accentOrange + '10',
+        borderColor: AppColors.accentCyan + '50',
+        backgroundColor: AppColors.accentCyan + '10',
     },
     secondaryButtonIcon: {
         fontSize: 22,
         marginRight: 10,
     },
     secondaryButtonText: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: '600',
-        color: AppColors.accentOrange,
+        color: AppColors.accentCyan,
     },
 
     // ─── Feature Pills ─────────────────────────────────────
@@ -644,7 +783,7 @@ const styles = StyleSheet.create({
     },
     historyClear: {
         fontSize: 14,
-        color: AppColors.accentOrange,
+        color: AppColors.accentCyan,
         fontWeight: '600',
     },
     historyItem: {
@@ -679,7 +818,7 @@ const styles = StyleSheet.create({
         height: 260,
         borderRadius: 20,
         borderWidth: 2,
-        borderColor: AppColors.accentOrange + '60',
+        borderColor: AppColors.accentCyan + '60',
     },
     processingOverlay: {
         ...StyleSheet.absoluteFillObject,
@@ -709,7 +848,7 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         marginBottom: 20,
         borderWidth: 1,
-        borderColor: AppColors.accentOrange + '30',
+        borderColor: AppColors.accentCyan + '30',
     },
     imagePreview: {
         width: '100%',
@@ -728,12 +867,12 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 5,
         borderRadius: 20,
-        backgroundColor: AppColors.accentOrange + '25',
+        backgroundColor: AppColors.accentCyan + '25',
     },
     detectionBadgeText: {
         fontSize: 12,
         fontWeight: '600',
-        color: AppColors.accentOrange,
+        color: AppColors.accentCyan,
     },
 
     // ─── Text Card ──────────────────────────────────────────
@@ -741,7 +880,7 @@ const styles = StyleSheet.create({
         backgroundColor: AppColors.surfaceCard,
         borderRadius: 20,
         borderWidth: 1,
-        borderColor: AppColors.accentOrange + '30',
+        borderColor: AppColors.accentCyan + '30',
         overflow: 'hidden',
         marginBottom: 20,
     },
@@ -757,25 +896,53 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: AppColors.textPrimary,
     },
+    speakerButton: {
+        padding: 8,
+        borderRadius: 10,
+        backgroundColor: AppColors.accentCyan + '15',
+        borderWidth: 1,
+        borderColor: AppColors.accentCyan + '30',
+    },
+    charCountContainer: {
+        paddingHorizontal: 16,
+        paddingBottom: 12,
+        alignItems: 'flex-end',
+    },
     charCount: {
         fontSize: 12,
         color: AppColors.textMuted,
     },
+    textEditorContainer: {
+        height: 200, // Fixed height for the editor container
+        margin: 16,
+        backgroundColor: AppColors.primaryDark + '30',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: AppColors.textMuted + '20',
+    },
+    textEditorScroll: {
+        flex: 1,
+    },
     textEditor: {
-        padding: 16,
+        padding: 12,
         fontSize: 15,
         color: AppColors.textPrimary,
         lineHeight: 22,
-        minHeight: 120,
         textAlignVertical: 'top',
     },
 
     // ─── Action Bar ─────────────────────────────────────────
     actionBar: {
-        flexDirection: 'row',
-        padding: 12,
-        gap: 10,
+        flexDirection: 'column',
+        padding: 16,
+        gap: 12,
         backgroundColor: AppColors.primaryMid,
+        borderBottomLeftRadius: 20,
+        borderBottomRightRadius: 20,
+    },
+    actionRow: {
+        flexDirection: 'row',
+        gap: 12,
     },
     actionButton: {
         flex: 1,
@@ -784,32 +951,45 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 12,
-        borderRadius: 12,
-        gap: 6,
+        paddingVertical: 14,
+        borderRadius: 14,
+        elevation: 4,
+        shadowColor: AppColors.accentCyan,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
     },
     actionButtonOutline: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 12,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: AppColors.textMuted + '40',
-        gap: 6,
+        paddingVertical: 14,
+        borderRadius: 14,
+        borderWidth: 2,
+        borderColor: AppColors.accentCyan + '40',
+        backgroundColor: AppColors.accentCyan + '08',
     },
-    actionIcon: {
-        fontSize: 16,
+    scanAnotherButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 14,
+        borderRadius: 14,
+        borderWidth: 2,
+        borderColor: AppColors.accentCyan + '40',
+        backgroundColor: AppColors.accentCyan + '08',
     },
     actionLabel: {
-        fontSize: 14,
-        fontWeight: '600',
+        fontSize: 15,
+        fontWeight: '700',
         color: '#FFFFFF',
+        letterSpacing: 0.5,
     },
     actionLabelOutline: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '600',
-        color: AppColors.textSecondary,
+        color: AppColors.accentCyan,
+        letterSpacing: 0.3,
     },
 
     // ─── New Scan ───────────────────────────────────────────

@@ -28,13 +28,14 @@ export const usePinpointer = () => {
     } = useSearch(true); // DB is initialized in App.tsx
 
     const {
-        isSyncing, isPaused, isDeepSync, syncCount, totalImages,
+        isSyncing, isPaused, isDeepSync, syncCount, totalImages, lastSyncTime,
         handleQuickSync, handleDeepSync, handlePauseSync, handleResumeSync,
         loadPersistedCount,
     } = useGallerySync();
 
     const {
-        isSyncingDocs, docSyncCount, totalDocs, handleDocumentSync
+        isSyncingDocs, docSyncCount, totalDocs, lastDocSyncTime,
+        handleDocumentSync, loadPersistedState: loadPersistedDocs
     } = useDocumentSync();
 
     // Voice: deliver transcription into the search bar
@@ -77,10 +78,11 @@ export const usePinpointer = () => {
     // --- Init: load persisted index count ---
     useEffect(() => {
         loadPersistedCount();
+        loadPersistedDocs();
         return () => {
             cleanupRecording();
         };
-    }, [loadPersistedCount, cleanupRecording]);
+    }, [loadPersistedCount, loadPersistedDocs, cleanupRecording]);
 
     // --- Cross-cutting: Manual scan ---
     const handleScan = useCallback(async () => {
@@ -137,9 +139,9 @@ export const usePinpointer = () => {
         startListening, stopListening,
 
         // Sync
-        isSyncing, isPaused, isDeepSync, syncCount, totalImages,
+        isSyncing, isPaused, isDeepSync, syncCount, totalImages, lastSyncTime,
         handleQuickSync, handleDeepSync, handlePauseSync, handleResumeSync,
-        isSyncingDocs, docSyncCount, totalDocs, handleDocumentSync,
+        isSyncingDocs, docSyncCount, totalDocs, lastDocSyncTime, handleDocumentSync,
 
         // Actions
         handleScan, handleShare, handleEdit,

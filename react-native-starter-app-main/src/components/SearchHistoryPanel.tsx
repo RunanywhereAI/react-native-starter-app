@@ -50,9 +50,8 @@ export const SearchHistoryPanel: React.FC<Props> = ({
                             colors={['rgba(255,255,255,0.06)', 'rgba(255,255,255,0.02)']}
                             style={styles.rowInner}
                         >
-                            {/* Left: clock icon + query */}
+                            {/* Left: query */}
                             <View style={styles.rowLeft}>
-                                <Text style={styles.clockIcon}>🕘</Text>
                                 <View style={{ flex: 1 }}>
                                     <Text style={styles.queryText} numberOfLines={1}>
                                         {item.query}
@@ -66,7 +65,7 @@ export const SearchHistoryPanel: React.FC<Props> = ({
                                 </View>
                             </View>
 
-                            {/* Right: delete + refill arrow */}
+                            {/* Right: delete */}
                             <View style={styles.rowActions}>
                                 <TouchableOpacity
                                     onPress={() => onDelete(item.query)}
@@ -75,7 +74,6 @@ export const SearchHistoryPanel: React.FC<Props> = ({
                                 >
                                     <Text style={styles.deleteIcon}>✕</Text>
                                 </TouchableOpacity>
-                                <Text style={styles.arrowIcon}>↗</Text>
                             </View>
                         </LinearGradient>
                     </TouchableOpacity>
@@ -122,9 +120,7 @@ const styles = StyleSheet.create({
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
     },
-    clockIcon: { fontSize: 16 },
     queryText: {
         color: '#FFF',
         fontSize: 14,
@@ -147,13 +143,9 @@ const styles = StyleSheet.create({
         color: 'rgba(255,255,255,0.3)',
         fontSize: 13,
     },
-    arrowIcon: {
-        color: AppColors.accentCyan,
-        fontSize: 16,
-        fontWeight: '700',
-    },
     separator: { height: 6 },
     emptyWrap: { alignItems: 'center', paddingVertical: 32 },
     emptyIcon: { fontSize: 32, marginBottom: 10 },
     emptyText: { color: 'rgba(255,255,255,0.35)', fontSize: 13 },
 });
+

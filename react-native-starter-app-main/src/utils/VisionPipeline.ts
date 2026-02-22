@@ -1,5 +1,6 @@
 import TextRecognition, { TextRecognitionScript } from '@react-native-ml-kit/text-recognition';
 import ImageLabeling from '@react-native-ml-kit/image-labeling';
+import ImageResizer from 'react-native-image-resizer';
 import { soundexAll } from './Soundex';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -64,9 +65,30 @@ const runLabeling = async (uri: string): Promise<string[]> => {
  *  - content:        flat joined string for SQLite LIKE queries
  *  - optimized_status: audit string
  */
-export const analyzeImage = async (uri: string): Promise<VisionResult> => {
+export const analyzeImage = async (originalUri: string): Promise<VisionResult> => {
+    let processUri = originalUri;
+
+    // ── Step 0: Downsample Image (Massive speed boost for ML Kit) ──────────────
+    try {
+        const resized = await ImageResizer.createResizedImage(
+            originalUri,
+            1024,
+            1024,
+            'JPEG',
+            80,
+            0,
+            undefined,
+            false,
+            { mode: 'contain' }
+        );
+        processUri = resized.uri;
+    } catch (resizeError) {
+        // Soft fail — continue with raw 12MP image if resizer fails for some reason
+        console.warn('[VisionPipeline] Resize failed, using full resolution:', resizeError);
+    }
+
     // ── Step 1: OCR ────────────────────────────────────────────────────────────
-    const { latin, hindi } = await runOCR(uri);
+    const { latin, hindi } = await runOCR(processUri);
     const combinedText = [latin, hindi].filter(Boolean).join(' ').trim();
 
     // ── Step 2: Early exit if text found ──────────────────────────────────────
@@ -86,7 +108,7 @@ export const analyzeImage = async (uri: string): Promise<VisionResult> => {
     }
 
     // ── Step 3: Fallback — Object/Scene Recognition ───────────────────────────
-    const labels = await runLabeling(uri);
+    const labels = await runLabeling(processUri);
 
     if (labels.length > 0) {
         const soundexCodes = soundexAll(labels.join(' '));

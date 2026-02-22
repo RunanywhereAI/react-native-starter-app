@@ -7,7 +7,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { RunAnywhere, SDKEnvironment } from '@runanywhere/core';
 
 // --- FIXED: Move these to the top to solve the "Dynamic Import" error ---
-import { LlamaCPP } from '@runanywhere/llamacpp';
 import { ONNX } from '@runanywhere/onnx';
 
 import { ModelServiceProvider, registerDefaultModels } from './services/ModelService';
@@ -19,6 +18,7 @@ import {
   PinpointerScreen,
   SmartClipboardScreen,
   PointAndSpeakScreen,
+  GalleryScreen,
 } from './screens';
 import { setupDatabase, closeDatabase } from './Database';
 import { RootStackParamList } from './navigation/types';
@@ -38,7 +38,6 @@ const App: React.FC = () => {
         });
 
         // 3. Register backends (Now using the top-level imports)
-        LlamaCPP.register();
         ONNX.register();
 
         await registerDefaultModels();
@@ -83,11 +82,12 @@ const App: React.FC = () => {
 
             {/* Existing Hackathon Screens */}
             <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Gallery" component={GalleryScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SpeechToText" component={SpeechToTextScreen} options={{ title: 'Speech to Text' }} />
-            <Stack.Screen name="TextToSpeech" component={TextToSpeechScreen} options={{ title: 'Text to Speech' }} />
+            <Stack.Screen name="TextToSpeech" component={TextToSpeechScreen} options={{ title: 'Read Aloud' }} />
 
             {/* New Feature Screens */}
-            <Stack.Screen name="SmartClipboard" component={SmartClipboardScreen} options={{ title: 'Smart Clipboard' }} />
+            <Stack.Screen name="SmartClipboard" component={SmartClipboardScreen} options={{ title: 'Scan Images' }} />
             <Stack.Screen name="PointAndSpeak" component={PointAndSpeakScreen} options={{ title: 'Point & Speak' }} />
           </Stack.Navigator>
         </NavigationContainer>

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Platform, PermissionsAndroid, Alert, NativeModules, Vibration } from 'react-native';
 import { RunAnywhere } from '@runanywhere/core';
 import { useModelService } from '../services/ModelService';
@@ -18,6 +18,13 @@ export const useVoiceRecording = (onTranscription: (text: string) => void) => {
     const [isModelLoading, setIsModelLoading] = useState(false);
     const [audioLevel, setAudioLevel] = useState(0);
     const [recordingDuration, setRecordingDuration] = useState(0);
+
+    // Watch for background STT loading completion to clear the hourglass UI state
+    useEffect(() => {
+        if (!isSTTDownloading && !isSTTLoading && isModelLoading) {
+            setIsModelLoading(false);
+        }
+    }, [isSTTDownloading, isSTTLoading, isModelLoading]);
 
     const audioLevelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const recordingStartRef = useRef<number>(0);
@@ -66,17 +73,22 @@ export const useVoiceRecording = (onTranscription: (text: string) => void) => {
     }, [onTranscription, cleanupRecording]);
 
     const startListening = useCallback(async () => {
-        // If model is busy, show brief inline feedback
+        // If model is actively being downloaded/loaded, show brief inline feedback
         if (isSTTDownloading || isSTTLoading) {
             setIsModelLoading(true);
             return;
         }
+        // If model not loaded yet, load it first and then proceed to record
         if (!isSTTLoaded) {
             setIsModelLoading(true);
-            downloadAndLoadSTT().finally(() => setIsModelLoading(false));
-            return;
+            try {
+                await downloadAndLoadSTT();
+            } catch (e) {
+                AppLogger.warn('VoiceRecording', 'Model load attempt failed, proceeding anyway', e);
+            }
+            setIsModelLoading(false);
+            // Fall through to recording below — don't return
         }
-        setIsModelLoading(false);
 
         try {
             Vibration.vibrate(40); // Solid thud when starting
@@ -97,10 +109,10 @@ export const useVoiceRecording = (onTranscription: (text: string) => void) => {
             isRecordingRef.current = true;
             setIsRecording(true);
 
-            // Auto-stop after 15 seconds
+            // Auto-stop after 10 seconds
             autoStopRef.current = setTimeout(() => {
                 stopListening();
-            }, 15000);
+            }, 10000);
 
             audioLevelIntervalRef.current = setInterval(async () => {
                 try {

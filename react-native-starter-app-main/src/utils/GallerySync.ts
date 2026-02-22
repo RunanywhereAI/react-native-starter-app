@@ -5,7 +5,8 @@ import { buildIndexableContent } from './TextEnrichment';
 import { analyzeImage } from './VisionPipeline';
 import { AppLogger } from './AppLogger';
 
-export const QUICK_SYNC_LIMIT = 300; // Fast cap — no sleep, no LLM
+export const QUICK_SYNC_LIMIT = 50;  // Fast cap for UI loading mask
+export const SILENT_BACKGROUND_LIMIT = 250; // Total 300
 const DEEP_BATCH_SIZE = 10;          // Smaller batches for deep sync (memory safe)
 const QUICK_BATCH_SIZE = 50;         // Larger batches for quick sync (no sleep needed)
 const DEEP_SLEEP_MS = 200;           // Sleep between deep sync batches
@@ -44,8 +45,9 @@ export const getGallerySyncLimit = async (): Promise<number> => -1;
 export const getGalleryTotalCount = async (): Promise<number> => -1;
 
 /**
- * QUICK SYNC — blazing fast, no sleep, no LLM enrichment.
- * Processes the most recent QUICK_SYNC_LIMIT photos in large batches.
+ * QUICK SYNC — Lazy Approach.
+ * Processes the most recent 50 photos while holding the UI.
+ * Then silently spins off a background task to process the remaining 250 photos.
  */
 export const performQuickSync = async (
     onProgress: (count: number) => void,
@@ -55,6 +57,7 @@ export const performQuickSync = async (
     let after: string | undefined = undefined;
     let totalProcessed = 0;
 
+    // Phase 1: Foreground loading (Block UI up to QUICK_SYNC_LIMIT)
     while (hasNextPage && totalProcessed < QUICK_SYNC_LIMIT) {
         if (cancelRef?.current) return { processed: totalProcessed, wasCancelled: true };
 
@@ -68,7 +71,7 @@ export const performQuickSync = async (
 
         for (const edge of pageResult.edges) {
             if (totalProcessed >= QUICK_SYNC_LIMIT || cancelRef?.current) {
-                return { processed: totalProcessed, wasCancelled: !!cancelRef?.current };
+                break;
             }
 
             const uri = edge.node.image.uri;
@@ -91,6 +94,51 @@ export const performQuickSync = async (
         after = pageResult.page_info.end_cursor;
     }
 
+    // Phase 2: Silent Background processing
+    if (hasNextPage && !cancelRef?.current) {
+        // Fire and forget (do not await)
+        (async () => {
+            let bgProcessed = 0;
+            while (hasNextPage && bgProcessed < SILENT_BACKGROUND_LIMIT) {
+                if (cancelRef?.current) break;
+
+                const bgPageResult = await CameraRoll.getPhotos({
+                    first: DEEP_BATCH_SIZE, // smaller batches in background
+                    after,
+                    assetType: 'Photos',
+                });
+
+                if (bgPageResult.edges.length === 0) break;
+
+                for (const edge of bgPageResult.edges) {
+                    if (bgProcessed >= SILENT_BACKGROUND_LIMIT || cancelRef?.current) {
+                        break;
+                    }
+
+                    const uri = edge.node.image.uri;
+                    if (!isFileIndexed(uri)) {
+                        try {
+                            const vision = await analyzeImage(uri);
+                            const content = await buildIndexableContent(vision.content || 'image');
+                            indexDocument(null, content || vision.content || 'image', uri, 'IMAGE', vision.detection_type as 'TEXT' | 'OBJECT');
+                        } catch (e) {
+                            AppLogger.warn('QuickSync (BG)', `Failed to process ${uri}`, e);
+                            indexDocument(null, 'image', uri, 'IMAGE', 'OBJECT');
+                        }
+                    }
+                    bgProcessed++;
+                    // intentionally not calling onProgress so the UI ignores it
+                }
+
+                hasNextPage = bgPageResult.page_info.has_next_page;
+                after = bgPageResult.page_info.end_cursor;
+                await sleep(500); // 500ms sleep between bg batches to keep UI fully responsive
+            }
+            AppLogger.info('QuickSync', `Finished silent background sync of ${bgProcessed} photos.`);
+        })();
+    }
+
+    // Return immediately to release the UI
     return { processed: totalProcessed, wasCancelled: false };
 };
 

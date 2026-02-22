@@ -271,11 +271,23 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
         promise.resolve(true)
     }
 
+    @Synchronized
     private fun stopPlaybackInternal() {
         isPlaying = false
-        audioTrack?.stop()
-        audioTrack?.release()
-        audioTrack = null
+        try {
+            if (audioTrack?.state == AudioTrack.STATE_INITIALIZED) {
+                audioTrack?.stop()
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+        try {
+            audioTrack?.release()
+        } catch (e: Exception) {
+            // Ignore
+        } finally {
+            audioTrack = null
+        }
     }
 
     @ReactMethod

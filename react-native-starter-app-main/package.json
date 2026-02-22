@@ -1,5 +1,5 @@
 {
-  "name": "runanywhere-starter-app",
+  "name": "pinpointer",
   "version": "1.0.0",
   "description": "A comprehensive starter app demonstrating RunAnywhere SDK capabilities - on-device AI for React Native",
   "main": "index.js",
@@ -9,7 +9,7 @@
     "start": "react-native start",
     "test": "jest",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "postinstall": "npx patch-package"
+    "postinstall": "npx patch-package && node download-models.js"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",
@@ -20,7 +20,6 @@
     "@react-navigation/native": "^7.1.24",
     "@react-navigation/stack": "^7.6.16",
     "@runanywhere/core": "^0.18.1",
-    "@runanywhere/llamacpp": "^0.18.1",
     "@runanywhere/onnx": "^0.18.1",
     "react": "19.2.0",
     "react-native": "0.83.1",
@@ -29,13 +28,15 @@
     "react-native-fs": "^2.20.0",
     "react-native-gesture-handler": "^2.30.0",
     "react-native-image-picker": "^5.4.0",
+    "react-native-image-resizer": "^1.4.5",
     "react-native-linear-gradient": "^2.8.3",
     "react-native-live-audio-stream": "^1.1.1",
     "react-native-nitro-modules": "^0.31.10",
     "react-native-pdf-light": "^2.4.2",
     "react-native-quick-sqlite": "^8.2.7",
     "react-native-safe-area-context": "~5.6.2",
-    "react-native-sound": "^0.13.0"
+    "react-native-sound": "^0.13.0",
+    "react-native-svg": "^15.15.3"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

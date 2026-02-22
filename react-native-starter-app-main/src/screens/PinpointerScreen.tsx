@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { SyncProgressCard, ModelDownloadSheet, SearchHistoryPanel, RecentPhotosSlide, SearchFilterChips, FilterCategory } from '../components';
+import { SyncProgressCard, ModelDownloadSheet, SearchHistoryPanel, SearchFilterChips, FilterCategory } from '../components';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../navigation/types';
@@ -10,6 +10,8 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
+    TouchableWithoutFeedback,
+    Pressable,
     StyleSheet,
     StatusBar,
     Animated,
@@ -23,10 +25,14 @@ import {
     ActivityIndicator,
     Linking,
     NativeModules,
+    BackHandler,
+    Easing,
+    Platform,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { AppColors } from '../theme';
 import { usePinpointer } from '../hooks/usePinpointer';
+import { HomeScreen } from '../screens/HomeScreen';
 
 const { StorageModule } = NativeModules;
 
@@ -43,35 +49,203 @@ export const PinpointerScreen: React.FC = () => {
         startListening, stopListening,
         handleScan, handleShare, handleEdit,
         handleQuickSync, handleDeepSync, handlePauseSync, handleResumeSync,
-        isSyncing, isPaused, isDeepSync, syncCount, totalImages,
-        isSyncingDocs, docSyncCount, totalDocs, handleDocumentSync,
+        isSyncing, isPaused, isDeepSync, syncCount, totalImages, lastSyncTime,
+        isSyncingDocs, docSyncCount, totalDocs, lastDocSyncTime, handleDocumentSync,
         searchHistory, handleSelectHistory, handleDeleteHistory, handleClearHistory,
     } = usePinpointer();
+
+    // --- Loading UI Animations ---
+    const syncProgress = useRef(new Animated.Value(0)).current;
+    const syncSpinAnim = useRef(new Animated.Value(0)).current;
+    const syncFadeAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        if (isSyncing || isSyncingDocs) {
+            // Entrance fade
+            Animated.timing(syncFadeAnim, {
+                toValue: 1,
+                duration: 400,
+                useNativeDriver: true,
+            }).start();
+
+            // Spinning loader
+            Animated.loop(
+                Animated.timing(syncSpinAnim, {
+                    toValue: 1,
+                    duration: 1200,
+                    easing: Easing.linear,
+                    useNativeDriver: true,
+                })
+            ).start();
+        } else {
+            syncSpinAnim.stopAnimation();
+            syncFadeAnim.setValue(0);
+            syncSpinAnim.setValue(0);
+            // reset progress for next time
+            syncProgress.setValue(0);
+        }
+    }, [isSyncing, isSyncingDocs, syncFadeAnim, syncSpinAnim, syncProgress]);
+
+    // Animate progress bar as items process
+    useEffect(() => {
+        let targetProgress = 0;
+        if (isSyncing) {
+            targetProgress = Math.min(syncCount / 50, 1);
+        } else if (isSyncingDocs && totalDocs > 0) {
+            targetProgress = Math.min(docSyncCount / totalDocs, 1);
+        }
+
+        Animated.timing(syncProgress, {
+            toValue: targetProgress,
+            duration: 300, // Smooth 300ms catchup
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: false,
+        }).start();
+    }, [syncCount, docSyncCount, totalDocs, isSyncing, isSyncingDocs, syncProgress]); const formatRelativeTime = (timestamp: number | null) => {
+        if (!timestamp) return 'Never synced';
+        const now = Date.now();
+        const diffInSecs = Math.floor((now - timestamp) / 1000);
+
+        if (diffInSecs < 60) return 'now';
+        if (diffInSecs < 3600) return `${Math.floor(diffInSecs / 60)}m ago`;
+        if (diffInSecs < 86400) return `${Math.floor(diffInSecs / 3600)}h ago`;
+
+        const days = Math.floor(diffInSecs / 86400);
+        return days === 1 ? 'Yesterday' : `${days} days ago`;
+    };
+
+    const renderSyncButton = (label: string, subtitle: string, color: string, onPress: () => void, active: boolean) => (
+        <>
+            <TouchableOpacity
+                style={[styles.solidButton, { backgroundColor: color, opacity: active ? 0.7 : 1 }]}
+                onPress={onPress}
+                disabled={active}
+            >
+                <Text style={styles.dashboardButtonText}>
+                    {active ? 'Scanning...' : label}
+                </Text>
+            </TouchableOpacity>
+            <Text style={styles.dashboardButtonSubtitle}>{subtitle}</Text>
+        </>
+    );
 
     const route = useRoute<RouteProp<RootStackParamList, 'Pinpointer'>>();
 
     const [showModelSheet, setShowModelSheet] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [selectedFilter, setSelectedFilter] = useState<FilterCategory>('ALL');
+    const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
     const scrollViewRef = useRef<ScrollView>(null);
     const searchInputRef = useRef<TextInput>(null);
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
-    const slideAnim = useRef(new Animated.Value(20)).current;
+    const resultsSlideAnim = useRef(new Animated.Value(20)).current;
+    const slideAnim = useRef(new Animated.Value(height)).current;
+    const drawerAnim = useRef(new Animated.Value(-width)).current;
+    const orbScaleAnim = useRef(new Animated.Value(1)).current;
+    const gVoiceAnim1 = useRef(new Animated.Value(1)).current;
+    const gVoiceAnim2 = useRef(new Animated.Value(1)).current;
+    const gVoiceAnim3 = useRef(new Animated.Value(1)).current;
+    const gVoiceAnim4 = useRef(new Animated.Value(1)).current;
+
+    useEffect(() => {
+        const startBreathing = () => {
+            Animated.loop(
+                Animated.sequence([
+                    Animated.timing(orbScaleAnim, { toValue: 1.05, duration: 2000, useNativeDriver: true }),
+                    Animated.timing(orbScaleAnim, { toValue: 1, duration: 2000, useNativeDriver: true })
+                ])
+            ).start();
+        };
+        startBreathing();
+    }, [orbScaleAnim]);
+
+    useEffect(() => {
+        if (isRecording) {
+            const startBounce = (anim: Animated.Value, delay: number) => {
+                Animated.loop(
+                    Animated.sequence([
+                        Animated.timing(anim, { toValue: 1.5, duration: 400, delay, useNativeDriver: true }),
+                        Animated.timing(anim, { toValue: 1, duration: 400, useNativeDriver: true })
+                    ])
+                ).start();
+            };
+            startBounce(gVoiceAnim1, 0);
+            startBounce(gVoiceAnim2, 150);
+            startBounce(gVoiceAnim3, 300);
+            startBounce(gVoiceAnim4, 450);
+        } else {
+            gVoiceAnim1.stopAnimation(); gVoiceAnim1.setValue(1);
+            gVoiceAnim2.stopAnimation(); gVoiceAnim2.setValue(1);
+            gVoiceAnim3.stopAnimation(); gVoiceAnim3.setValue(1);
+            gVoiceAnim4.stopAnimation(); gVoiceAnim4.setValue(1);
+        }
+    }, [isRecording, gVoiceAnim1, gVoiceAnim2, gVoiceAnim3, gVoiceAnim4]);
+
+    const openDrawer = () => {
+        setIsDrawerOpen(true);
+        Animated.timing(drawerAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+        }).start();
+    };
+
+    const closeDrawer = () => {
+        Animated.timing(drawerAnim, {
+            toValue: -width,
+            duration: 300,
+            useNativeDriver: true,
+        }).start(() => {
+            setIsDrawerOpen(false);
+        });
+    };
+
+    useEffect(() => {
+        const backAction = () => {
+            if (isDrawerOpen) {
+                closeDrawer();
+                return true;
+            }
+            // First behavior: cancel search if search is active
+            if (isSearching) {
+                Keyboard.dismiss();
+                setIsSearching(false);
+                // Delay state clearing so the Animated.timing isn't dropped by 
+                // native layout shifts caused by unmounting the Results List
+                setTimeout(() => {
+                    setSearchText('');
+                }, 300);
+                return true;
+            }
+            // Secondary behavior: go back to previous screen (exit)
+            return false;
+        };
+
+        const backHandler = BackHandler.addEventListener(
+            'hardwareBackPress',
+            backAction
+        );
+
+        return () => backHandler.remove();
+    }, [isSearching, isDrawerOpen]);
 
     useEffect(() => {
         if (isSearching) {
             Animated.parallel([
-                Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-                Animated.timing(slideAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
+                Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+                Animated.timing(resultsSlideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+                Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 55, useNativeDriver: true })
             ]).start();
         } else {
             Animated.parallel([
-                Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
-                Animated.timing(slideAnim, { toValue: 20, duration: 400, useNativeDriver: true }),
+                Animated.timing(fadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
+                Animated.timing(resultsSlideAnim, { toValue: 20, duration: 200, useNativeDriver: true }),
+                Animated.timing(slideAnim, { toValue: 1200, duration: 250, useNativeDriver: true })
             ]).start();
         }
-    }, [isSearching, fadeAnim, slideAnim]);
+    }, [isSearching]); // Only trigger when isSearching explicitly toggles
 
     // Handle Deep Sync trigger from HomeScreen Navigation
     useEffect(() => {
@@ -84,9 +258,13 @@ export const PinpointerScreen: React.FC = () => {
     }, [route.params?.startUniversalSync]);
 
     const handleBackPress = () => {
-        setIsSearching(false);
-        setSearchText('');
         Keyboard.dismiss();
+        setIsSearching(false);
+        // Delay state clearing so the Animated.timing isn't dropped by 
+        // native layout shifts caused by unmounting the Results List
+        setTimeout(() => {
+            setSearchText('');
+        }, 300);
     };
 
     const handleSearchFocus = () => {
@@ -149,112 +327,221 @@ export const PinpointerScreen: React.FC = () => {
         }
     };
 
-    // ─── Search Bar Component (reused in both states) ────────────────────
-    const renderSearchBar = () => (
-        <View style={isSearching ? styles.searchBarTop : styles.searchBarBottom}>
-            <LinearGradient
-                colors={[AppColors.surfaceCard, AppColors.surfaceElevated]}
-                style={styles.searchBarGradient}
-            >
-                <View style={styles.searchContent}>
-                    <Text style={styles.searchIcon}>🔍</Text>
+    // ─── Search Bar / Google Voice Component ────────────────────
+    const renderSearchBar = (isTop: boolean = false) => (
+        <View style={[styles.glassSearchBarContainer, isTop ? styles.searchBarTopSearch : styles.searchBarBottomNormal]}>
+            {isRecording ? (
+                <View style={styles.googleVoiceContainer}>
+                    <Animated.View style={[styles.voiceCircle, { backgroundColor: 'rgba(66, 133, 244, 1)', transform: [{ scale: gVoiceAnim1 }] }]} />
+                    <Animated.View style={[styles.voiceCircle, { backgroundColor: 'rgba(234, 67, 53, 1)', transform: [{ scale: gVoiceAnim2 }] }]} />
+                    <Animated.View style={[styles.voiceCircle, { backgroundColor: 'rgba(251, 188, 5, 1)', transform: [{ scale: gVoiceAnim3 }] }]} />
+                    <Animated.View style={[styles.voiceCircle, { backgroundColor: 'rgba(52, 168, 83, 1)', transform: [{ scale: gVoiceAnim4 }] }]} />
+                    <TouchableOpacity
+                        style={styles.voiceStopButton}
+                        onPress={stopListening}
+                        accessibilityLabel="Stop recording"
+                        accessibilityRole="button"
+                    >
+                        <View style={styles.voiceStopSquare} />
+                    </TouchableOpacity>
+                </View>
+            ) : (
+                <Pressable onPressIn={!isTop ? handleSearchFocus : undefined} style={styles.glassSearchPill}>
                     <TextInput
                         ref={searchInputRef}
-                        style={styles.searchInput}
-                        placeholder={
-                            isModelLoading ? "Warming up AI..." :
-                                isTranscribing ? "Transcribing..." :
-                                    isRecording ? "Listening..." : "Search documents..."
-                        }
-                        placeholderTextColor={AppColors.textMuted}
+                        style={styles.glassSearchInput}
+                        placeholder="Search on Pinpointer..."
+                        placeholderTextColor="#6B7280"
                         value={searchText}
                         onChangeText={setSearchText}
                         onFocus={handleSearchFocus}
                         autoFocus={isSearching}
+                        pointerEvents={isTop ? 'auto' : 'none'}
+                        editable={isTop}
                         accessibilityLabel="Search documents"
                     />
-
-                    {/* WHISPER MICROPHONE */}
                     <TouchableOpacity
-                        style={styles.micButton}
-                        onPress={isRecording ? stopListening : startListening}
-                        disabled={isTranscribing}
-                        accessibilityLabel={isRecording ? "Stop recording" : "Start voice search"}
+                        style={styles.glassMicButton}
+                        onPress={startListening}
+                        disabled={isTranscribing || isModelLoading}
+                        accessibilityLabel="Start voice search"
                         accessibilityRole="button"
                     >
-                        <LinearGradient
-                            colors={
-                                isModelLoading
-                                    ? ['#F59E0B', '#D97706'] // Orange loading state
-                                    : isTranscribing
-                                        ? ['#888', '#555']
-                                        : isRecording
-                                            ? ['#FF416C', '#FF4B2B']
-                                            : [AppColors.accentCyan, AppColors.accentViolet]
-                            }
-                            style={styles.micGradient}
-                        >
-                            <Text style={styles.micIcon}>
-                                {isTranscribing ? '⏳' : isRecording ? '⏹️' : '🎤'}
-                            </Text>
-                        </LinearGradient>
+                        {isTranscribing || isModelLoading ? (
+                            <Text style={styles.glassMicIcon}>⏳</Text>
+                        ) : (
+                            <View style={{ alignItems: 'center', justifyContent: 'center', width: 24, height: 24 }}>
+                                <View style={{ width: 8, height: 12, borderRadius: 4, backgroundColor: '#9CA3AF' }} />
+                                <View style={{ position: 'absolute', bottom: 5, width: 14, height: 10, borderBottomWidth: 1.5, borderLeftWidth: 1.5, borderRightWidth: 1.5, borderColor: '#9CA3AF', borderBottomLeftRadius: 7, borderBottomRightRadius: 7 }} />
+                                <View style={{ position: 'absolute', bottom: 2, width: 1.5, height: 3, backgroundColor: '#9CA3AF' }} />
+                                <View style={{ position: 'absolute', bottom: 0, width: 8, height: 1.5, backgroundColor: '#9CA3AF', borderRadius: 1 }} />
+                            </View>
+                        )}
                     </TouchableOpacity>
-
-                    {/* BYPASS SCAN CAMERA */}
-                    <TouchableOpacity
-                        style={[styles.micButton, { marginLeft: 8 }]}
-                        onPress={handleScan}
-                        accessibilityLabel="Scan photo with camera"
-                        accessibilityRole="button"
-                    >
-                        <LinearGradient
-                            colors={[AppColors.primaryMid, AppColors.primaryDark]}
-                            style={styles.micGradient}
-                        >
-                            <Text style={styles.micIcon}>📷</Text>
-                        </LinearGradient>
-                    </TouchableOpacity>
-                </View>
-            </LinearGradient>
+                </Pressable>
+            )}
         </View>
     );
 
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="light-content" />
-            <LinearGradient
-                colors={[AppColors.primaryDark, AppColors.primaryMid, AppColors.primaryDark]}
-                style={styles.background}
-            >
-                {/* Header */}
-                <View style={styles.header}>
-                    <TouchableOpacity
-                        style={styles.menuButton}
-                        onPress={() => navigation.navigate('Home')}
-                        accessibilityLabel="Open menu"
-                        accessibilityRole="button"
-                    >
-                        <View style={styles.menuLine} />
-                        <View style={[styles.menuLine, { width: 14 }]} />
-                        <View style={styles.menuLine} />
-                    </TouchableOpacity>
-                    {isSearching && (
+            <StatusBar barStyle="light-content" backgroundColor="#05050A" />
+            <View style={styles.glassBackground}>
+                {/* Aurora Background */}
+                <View style={styles.aurora1} />
+                <View style={styles.aurora2} />
+                <View style={styles.aurora3} />
+            </View>
+
+            <View style={{ flex: 1 }}>
+                {/* ────── NORMAL MODE (Glassmorphism Dashboard) ────── */}
+                <View style={StyleSheet.absoluteFillObject}>
+                    <View style={styles.glassHeaderRow}>
                         <TouchableOpacity
-                            onPress={handleBackPress}
-                            style={styles.backButton}
-                            accessibilityLabel="Cancel search"
-                            accessibilityRole="button"
+                            style={styles.headerMenuButton}
+                            onPress={openDrawer}
+                            accessibilityLabel="Open menu"
                         >
-                            <Text style={styles.backText}>Cancel</Text>
+                            <Text style={{ color: '#FFF', fontSize: 24 }}>☰</Text>
                         </TouchableOpacity>
-                    )}
+                        <Text style={styles.glassHeaderTitle}>Pinpointer</Text>
+                    </View>
+
+                    <View style={styles.dashboardMiddleSection}>
+                        <View style={{ flex: 1 }} />
+
+                        <View style={styles.indexingCard}>
+                            {(isSyncing || isSyncingDocs) && !isDeepSync ? (
+                                <Animated.View style={[{ width: '100%', opacity: syncFadeAnim }]}>
+                                    <View style={styles.loadingBoxContainer}>
+                                        <LinearGradient
+                                            colors={['rgba(0, 217, 255, 0.12)', 'rgba(0, 217, 255, 0.03)']}
+                                            style={styles.loadingBox}
+                                        >
+                                            <View style={styles.loadingHeaderRow}>
+                                                <View style={styles.loadingLoaderContainer}>
+                                                    <Animated.View style={[styles.loadingSpinner, { transform: [{ rotate: syncSpinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]}>
+                                                        <LinearGradient colors={['#00D9FF', 'transparent']} style={StyleSheet.absoluteFill} />
+                                                    </Animated.View>
+                                                    <View style={styles.loadingSpinnerCenterMask} />
+                                                </View>
+
+                                                <View style={styles.loadingShieldBadge}>
+                                                    <Text style={styles.loadingShieldEmoji}>🛡️</Text>
+                                                    <View style={styles.loadingLiveDot} />
+                                                </View>
+                                            </View>
+
+                                            <Text style={styles.loadingSubtitle}>
+                                                {isSyncing
+                                                    ? `Analyzing images on-device...`
+                                                    : `Analyzing docs on-device...`}
+                                            </Text>
+
+                                            <View style={styles.loadingProgressTrack}>
+                                                <Animated.View style={[styles.loadingProgressBar, { width: syncProgress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) }]}>
+                                                    <LinearGradient
+                                                        colors={['#00D9FF', '#00A3FF']}
+                                                        start={{ x: 0, y: 0 }}
+                                                        end={{ x: 1, y: 0 }}
+                                                        style={StyleSheet.absoluteFill}
+                                                    />
+                                                </Animated.View>
+                                            </View>
+
+                                            <View style={styles.loadingFooterRow}>
+                                                <Text style={styles.loadingPrivacyText}>
+                                                    100% private. No data leaves this device.
+                                                </Text>
+                                            </View>
+                                        </LinearGradient>
+                                    </View>
+                                </Animated.View>
+                            ) : (
+                                <View style={styles.dashboardActions}>
+                                    <View style={styles.actionColumn}>
+                                        {renderSyncButton(
+                                            'Scan Images',
+                                            `last synced ${formatRelativeTime(lastSyncTime)}`,
+                                            '#0F766E',
+                                            handleQuickSync,
+                                            isSyncing
+                                        )}
+                                    </View>
+                                    <View style={styles.actionColumn}>
+                                        {renderSyncButton(
+                                            'Scan docs',
+                                            `last synced ${formatRelativeTime(lastDocSyncTime)}`,
+                                            '#4C1D95',
+                                            handleDocumentSync,
+                                            isSyncingDocs
+                                        )}
+                                    </View>
+                                </View>
+                            )}
+                        </View>
+
+                        {/* Filling the Middle Void */}
+                        <View style={styles.middleVoidContainer}>
+                            <Text style={styles.middleVoidText}>Ready to search your offline vault.</Text>
+                            <View style={styles.suggestionRow}>
+                                <TouchableOpacity
+                                    style={styles.suggestionPill}
+                                    onPress={() => {
+                                        setSearchText('Aadhaar');
+                                        setIsSearching(true);
+                                    }}
+                                >
+                                    <Text style={styles.suggestionText}>Find Aadhaar</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.suggestionPill}
+                                    onPress={() => {
+                                        setSearchText('cat');
+                                        setIsSearching(true);
+                                    }}
+                                >
+                                    <Text style={styles.suggestionText}>Image of my cat</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        {/* The new search bar will be injected below this via the shared renderSearchBar() */}
+                        {renderSearchBar(false)}
+                    </View>
                 </View>
 
-                {/* ────── SEARCHING MODE ────── */}
-                {isSearching ? (
-                    <View style={styles.searchingContainer}>
+                {/* ────── SEARCHING MODE OVERLAY ────── */}
+                <Animated.View
+                    pointerEvents={isSearching ? 'auto' : 'none'}
+                    style={[
+                        StyleSheet.absoluteFillObject,
+                        { zIndex: 100, backgroundColor: '#05050A', opacity: fadeAnim }
+                    ]}
+                >
+                    <View style={styles.glassBackground}>
+                        {/* Aurora Background overlay for drawer */}
+                        <View style={styles.aurora1} />
+                        <View style={styles.aurora2} />
+                        <View style={styles.aurora3} />
+                    </View>
+
+                    <View style={styles.glassHeaderRow}>
+                        <Pressable
+                            onPressIn={handleBackPress}
+                            style={styles.headerMenuButton}
+                            accessibilityLabel="Close search"
+                        >
+                            <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
+                                <View style={{ width: 12, height: 12, borderLeftWidth: 2.5, borderBottomWidth: 2.5, borderColor: '#9CA3AF', transform: [{ rotate: '45deg' }] }} />
+                            </View>
+                        </Pressable>
+                        <Text style={styles.glassHeaderTitle}>Pinpointer</Text>
+                    </View>
+
+                    <Animated.View style={[styles.searchingContainer, { transform: [{ translateY: slideAnim }] }]}>
                         {/* Search bar pinned at top */}
-                        {renderSearchBar()}
+                        {renderSearchBar(true)}
 
                         {/* Search History — shown when focused but no text typed */}
                         {!searchText.trim() ? (
@@ -271,7 +558,7 @@ export const PinpointerScreen: React.FC = () => {
                             <Animated.View
                                 style={[
                                     styles.resultsContainer,
-                                    { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
+                                    { opacity: fadeAnim, transform: [{ translateY: resultsSlideAnim }] }
                                 ]}
                             >
                                 <SearchFilterChips
@@ -299,7 +586,24 @@ export const PinpointerScreen: React.FC = () => {
                                                     Not in the last 300 photos?
                                                 </Text>
                                                 <TouchableOpacity
-                                                    onPress={handleDeepSync}
+                                                    onPress={() => {
+                                                        // 1. Close Search State
+                                                        Keyboard.dismiss();
+                                                        setIsSearching(false);
+
+                                                        // Delay state clearing so the Animated.timing isn't dropped by 
+                                                        // native layout shifts caused by unmounting the Results List
+                                                        setTimeout(() => {
+                                                            setSearchText('');
+                                                        }, 300);
+
+                                                        // 2. Open the Home Screen Drawer
+                                                        openDrawer();
+
+                                                        // 3. Trigger Universal Sync
+                                                        handleDeepSync();
+                                                        handleDocumentSync();
+                                                    }}
                                                     style={{
                                                         marginTop: 12,
                                                         backgroundColor: 'rgba(138,43,226,0.3)',
@@ -309,11 +613,11 @@ export const PinpointerScreen: React.FC = () => {
                                                         borderWidth: 1,
                                                         borderColor: 'rgba(138,43,226,0.6)',
                                                     }}
-                                                    accessibilityLabel="Deep sync entire gallery"
+                                                    accessibilityLabel="Start Universal Sync"
                                                     accessibilityRole="button"
                                                 >
-                                                    <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '700' }}>
-                                                        🔎 Deep Sync entire gallery
+                                                    <Text style={{ color: '#E9D5FF', fontWeight: 'bold' }}>
+                                                        ⚡ Start Universal Sync
                                                     </Text>
                                                 </TouchableOpacity>
                                             </View>
@@ -322,83 +626,9 @@ export const PinpointerScreen: React.FC = () => {
                                 />
                             </Animated.View>
                         )}
-                    </View>
-                ) : (
-                    /* ────── NORMAL MODE (Pages) ────── */
-                    <>
-                        <View style={styles.middleSection}>
-                            <ScrollView
-                                ref={scrollViewRef}
-                                horizontal
-                                pagingEnabled
-                                showsHorizontalScrollIndicator={false}
-                                onScroll={handleScroll}
-                                scrollEventThrottle={16}
-                                contentOffset={{ x: width, y: 0 }}
-                                style={styles.scrollView}
-                            >
-                                {/* PAGE 0: RECENT PHOTOS */}
-                                <View style={[styles.page, { width }]}>
-                                    <RecentPhotosSlide onSelectPhoto={openImage} />
-                                </View>
-
-                                {/* PAGE 1: SEARCH & SYNC */}
-                                <View style={[styles.page, { width }]}>
-                                    <View style={styles.pageCenter}>
-                                        <View style={styles.titleContainer}>
-                                            <TouchableOpacity
-                                                onPress={() => setShowModelSheet(true)}
-                                                style={styles.brainButton}
-                                                accessibilityLabel="Open AI model settings"
-                                                accessibilityRole="button"
-                                            >
-                                                <Text style={styles.mainTitle}>Bypass</Text>
-                                                <View style={styles.modelBtn}>
-                                                    <Text style={{ fontSize: 18 }}>🧠</Text>
-                                                </View>
-                                            </TouchableOpacity>
-                                            <Text style={styles.subTitle}>Visual Intelligence Engine</Text>
-                                        </View>
-
-                                        {/* SYNC CARD */}
-                                        <SyncProgressCard
-                                            isSyncing={isSyncing}
-                                            isPaused={isPaused}
-                                            isDeepSync={isDeepSync}
-                                            isSyncingDocs={isSyncingDocs}
-                                            syncCount={syncCount}
-                                            docSyncCount={docSyncCount}
-                                            totalImages={totalImages}
-                                            totalDocs={totalDocs}
-                                            onQuickSync={handleQuickSync}
-                                            onDeepSync={handleDeepSync}
-                                            onSyncDocs={handleDocumentSync}
-                                            onPauseSync={handlePauseSync}
-                                            onResumeSync={handleResumeSync}
-                                        />
-                                    </View>
-                                </View>
-
-                                {/* PAGE 2: EXTRA (Placeholder) */}
-                                <View style={[styles.page, { width }]}>
-                                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                                        <Text style={{ color: 'rgba(255,255,255,0.2)', fontSize: 14 }}>More settings coming soon</Text>
-                                    </View>
-                                </View>
-                            </ScrollView>
-
-                            {/* Search Bar — floating above dots */}
-                            {currentPage === 1 && renderSearchBar()}
-                        </View>
-
-                        <View style={styles.footer}>
-                            <View style={[styles.dot, currentPage === 0 && styles.activeDot]} />
-                            <View style={[styles.dot, currentPage === 1 && styles.activeDot]} />
-                            <View style={[styles.dot, currentPage === 2 && styles.activeDot]} />
-                        </View>
-                    </>
-                )}
-            </LinearGradient>
+                    </Animated.View>
+                </Animated.View>
+            </View>
 
             {/* GALLERY PREVIEW MODAL */}
             <Modal visible={!!selectedImage} transparent animationType="fade" onRequestClose={() => setSelectedImage(null)}>
@@ -412,6 +642,20 @@ export const PinpointerScreen: React.FC = () => {
                             <Text style={styles.headerIcon}>✕</Text>
                         </TouchableOpacity>
                         <View style={{ flexDirection: 'row' }}>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    if (selectedImage) {
+                                        const uri = selectedImage;
+                                        setSelectedImage(null);
+                                        navigation.navigate('SmartClipboard', { scanUri: uri });
+                                    }
+                                }}
+                                style={{ marginRight: 25 }}
+                                accessibilityLabel="Scan image"
+                                accessibilityRole="button"
+                            >
+                                <Text style={styles.headerIcon}>🔍</Text>
+                            </TouchableOpacity>
                             <TouchableOpacity
                                 onPress={handleEdit}
                                 style={{ marginRight: 25 }}
@@ -446,6 +690,21 @@ export const PinpointerScreen: React.FC = () => {
                 visible={showModelSheet}
                 onClose={() => setShowModelSheet(false)}
             />
+
+            {/* SLIDING DRAWER & OVERLAY */}
+            {isDrawerOpen && (
+                <TouchableWithoutFeedback onPress={closeDrawer}>
+                    <Animated.View style={styles.drawerOverlay} />
+                </TouchableWithoutFeedback>
+            )}
+            <Animated.View
+                style={[
+                    styles.drawerContainer,
+                    { transform: [{ translateX: drawerAnim }] }
+                ]}
+            >
+                <HomeScreen navigation={navigation as any} onCloseDrawer={closeDrawer} />
+            </Animated.View>
         </View>
     );
 };
@@ -510,4 +769,323 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.15)',
     },
+
+    // Custom Drawer Styles
+    drawerOverlay: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        zIndex: 50,
+    },
+    drawerContainer: {
+        position: 'absolute',
+        top: 0, left: 0, bottom: 0,
+        width: '85%',
+        backgroundColor: AppColors.primaryDark,
+        zIndex: 100,
+        shadowColor: '#000',
+        shadowOffset: { width: 4, height: 0 },
+    },
+    // ─── NEW GLASSMORPHISM AESTHETIC STYLES ────────────────────
+    glassBackground: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: '#05050A',
+        overflow: 'hidden',
+    },
+    aurora1: {
+        position: 'absolute',
+        top: -100,
+        left: -150,
+        width: 800,
+        height: 250,
+        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+        transform: [{ rotate: '45deg' }],
+        borderRadius: 400,
+    },
+    aurora2: {
+        position: 'absolute',
+        bottom: -50,
+        right: -250,
+        width: 900,
+        height: 300,
+        backgroundColor: 'rgba(168, 85, 247, 0.1)',
+        transform: [{ rotate: '-35deg' }],
+        borderRadius: 450,
+    },
+    aurora3: {
+        position: 'absolute',
+        top: '30%',
+        left: -200,
+        width: 600,
+        height: 200,
+        backgroundColor: 'rgba(99, 102, 241, 0.08)',
+        transform: [{ rotate: '70deg' }],
+        borderRadius: 300,
+    },
+    glassHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 24,
+        marginTop: 20,
+        height: 60,
+        position: 'relative',
+    },
+    headerMenuButton: {
+        position: 'absolute',
+        left: 20,
+        padding: 8,
+        zIndex: 10,
+    },
+    headerCancelButton: {
+        position: 'absolute',
+        right: 20,
+        padding: 8,
+        zIndex: 10,
+    },
+    glassHeaderTitle: {
+        fontSize: 40,
+        fontWeight: 'bold',
+        color: '#FFFFFF',
+        letterSpacing: -0.5,
+        textAlign: 'center',
+    },
+    dashboardMiddleSection: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        paddingHorizontal: 20,
+        paddingTop: 24,
+    },
+    indexingCard: {
+        width: '100%',
+        backgroundColor: 'rgba(255, 255, 255, 0.06)',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: 20,
+        padding: 24,
+        alignItems: 'center',
+    },
+    middleVoidContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 40,
+        marginBottom: 24,
+        width: '100%',
+    },
+    middleVoidText: {
+        fontSize: 16,
+        color: '#9CA3AF',
+        marginBottom: 16,
+    },
+    suggestionRow: {
+        flexDirection: 'row',
+        flexWrap: 'nowrap',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 12,
+    },
+    suggestionPill: {
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: 20,
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+    },
+    suggestionText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+    },
+    dashboardActions: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        width: '100%',
+        gap: 12,
+    },
+    actionColumn: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    solidButton: {
+        width: '100%',
+        paddingVertical: 14,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    dashboardButtonText: {
+        color: '#FFFFFF',
+        fontSize: 15,
+        fontWeight: '600',
+    },
+    dashboardButtonSubtitle: {
+        color: '#D1D5DB',
+        fontSize: 12,
+        marginTop: 6,
+    },
+    glassSearchBarContainer: {
+        width: '100%',
+        elevation: 10,
+    },
+    searchBarTopSearch: {
+        marginBottom: 16,
+    },
+    searchBarBottomNormal: {
+        marginTop: 20,
+        marginBottom: 30,
+    },
+    glassSearchPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#202123',
+        borderRadius: 30,
+        paddingLeft: 20,
+        paddingRight: 6,
+        height: 56,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
+    },
+    glassSearchInput: {
+        flex: 1,
+        fontSize: 16,
+        color: '#FFFFFF',
+        height: '100%',
+    },
+    glassMicButton: {
+        height: 44,
+        width: 44,
+        borderRadius: 22,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    glassMicIcon: {
+        fontSize: 18,
+    },
+    googleVoiceContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: 56,
+        gap: 16,
+    },
+    voiceCircle: {
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+    },
+    voiceStopButton: {
+        position: 'absolute',
+        right: 10,
+        width: 44,
+        height: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    voiceStopSquare: {
+        width: 14,
+        height: 14,
+        backgroundColor: '#EF4444',
+        borderRadius: 2,
+    },
+    loadingBoxContainer: {
+        width: '100%',
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(0, 217, 255, 0.2)',
+        overflow: 'hidden',
+        backgroundColor: 'rgba(15, 23, 42, 0.8)',
+        ...Platform.select({
+            ios: {
+                shadowColor: '#00D9FF',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.15,
+                shadowRadius: 12,
+            },
+            android: { elevation: 10 },
+        }),
+    },
+    loadingBox: {
+        padding: 24,
+    },
+    loadingHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    loadingLoaderContainer: {
+        width: 30,
+        height: 30,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    loadingSpinner: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        overflow: 'hidden',
+    },
+    loadingSpinnerCenterMask: {
+        position: 'absolute',
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#0F172A',
+    },
+    loadingShieldBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 217, 255, 0.1)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: 'rgba(0, 217, 255, 0.1)',
+    },
+    loadingShieldEmoji: {
+        fontSize: 14,
+        marginRight: 6,
+    },
+    loadingLiveDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#00D9FF',
+    },
+    loadingSubtitle: {
+        color: 'rgba(255, 255, 255, 0.6)',
+        fontSize: 14,
+        fontWeight: '500',
+        marginBottom: 16,
+    },
+    loadingProgressTrack: {
+        height: 6,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        borderRadius: 3,
+        overflow: 'hidden',
+        marginBottom: 16,
+    },
+    loadingProgressBar: {
+        height: '100%',
+        borderRadius: 3,
+    },
+    loadingFooterRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    loadingPrivacyText: {
+        color: '#00D9FF',
+        fontSize: 13,
+        fontWeight: '600',
+        flex: 1,
+        opacity: 0.8,
+    },
+
 });

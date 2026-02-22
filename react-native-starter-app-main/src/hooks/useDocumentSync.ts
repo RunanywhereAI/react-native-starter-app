@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Platform, Alert, Linking, NativeModules } from 'react-native';
 import RNFS from 'react-native-fs';
 import { indexDocument, isFileIndexed } from '../Database';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCallback, useEffect } from 'react';
 
 const { StorageModule } = NativeModules;
 
@@ -9,6 +11,20 @@ export const useDocumentSync = () => {
     const [isSyncingDocs, setIsSyncingDocs] = useState(false);
     const [docSyncCount, setDocSyncCount] = useState(0);
     const [totalDocs, setTotalDocs] = useState(0);
+    const [lastDocSyncTime, setLastDocSyncTime] = useState<number | null>(null);
+
+    const loadPersistedState = useCallback(async () => {
+        try {
+            const timeStr = await AsyncStorage.getItem('doc_last_sync_time');
+            if (timeStr) setLastDocSyncTime(parseInt(timeStr, 10));
+        } catch (e) {
+            console.error('[DocumentSync] Failed to load persisted time', e);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadPersistedState();
+    }, [loadPersistedState]);
 
     const requestAccessAndOpenSettings = () => {
         Alert.alert(
@@ -94,10 +110,6 @@ export const useDocumentSync = () => {
                 return;
             }
 
-            // This block is now only reached if results is not null (i.e., pdfFiles.length > 0)
-            // The case where pdfFiles.length === 0 is now handled by returning null from scanForPDFs
-            // and triggering the permission request.
-
             setTotalDocs(results.length);
             setDocSyncCount(0);
 
@@ -146,6 +158,10 @@ export const useDocumentSync = () => {
             setIsSyncingDocs(false);
             setDocSyncCount(0);
             setTotalDocs(0);
+
+            const now = Date.now();
+            setLastDocSyncTime(now);
+            await AsyncStorage.setItem('doc_last_sync_time', now.toString());
         }
     };
 
@@ -153,6 +169,8 @@ export const useDocumentSync = () => {
         isSyncingDocs,
         docSyncCount,
         totalDocs,
-        handleDocumentSync
+        lastDocSyncTime,
+        handleDocumentSync,
+        loadPersistedState
     };
 };

@@ -1,9 +1,8 @@
 export * from './FeatureCard';
 export * from './ModelLoaderWidget';
-export * from './ChatMessageBubble';
+
 export * from './AudioVisualizer';
 export * from './SyncProgressCard';
 export * from './ModelDownloadSheet';
 export * from './SearchHistoryPanel';
-export * from './RecentPhotosSlide';
 export * from './SearchFilterChips';

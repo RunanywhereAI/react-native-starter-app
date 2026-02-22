@@ -1,11 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity,
-    Modal, Animated, Dimensions,
+    Modal, Animated, Dimensions, Alert
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useModelService } from '../services/ModelService';
 import { AppColors } from '../theme';
+import RNFS from 'react-native-fs';
 
 const { height } = Dimensions.get('window');
 
@@ -38,7 +39,7 @@ const ModelRow: React.FC<ModelRowProps> = ({
     const getStatus = () => {
         if (isLoaded) return { label: '✅ Ready', color: '#22C55E' };
         if (isLoading) return { label: '⚙️ Loading...', color: AppColors.accentCyan };
-        if (isDownloading) return { label: `${Math.round(progress)}%`, color: accent };
+        if (isDownloading) return { label: `📦 Unpacking ${Math.round(progress)}%`, color: accent };
         return { label: size, color: AppColors.textMuted };
     };
 
@@ -99,13 +100,12 @@ interface Props {
 export const ModelDownloadSheet: React.FC<Props> = ({ visible, onClose }) => {
     const slideAnim = useRef(new Animated.Value(height)).current;
     const {
-        isLLMDownloading, isLLMLoading, isLLMLoaded, llmDownloadProgress, downloadAndLoadLLM,
         isSTTDownloading, isSTTLoading, isSTTLoaded, sttDownloadProgress, downloadAndLoadSTT,
         isTTSDownloading, isTTSLoading, isTTSLoaded, ttsDownloadProgress, downloadAndLoadTTS,
         downloadAndLoadAllModels,
     } = useModelService();
 
-    const allReady = isLLMLoaded && isSTTLoaded && isTTSLoaded;
+    const allReady = isSTTLoaded && isTTSLoaded;
 
     useEffect(() => {
         Animated.spring(slideAnim, {
@@ -130,6 +130,16 @@ export const ModelDownloadSheet: React.FC<Props> = ({ visible, onClose }) => {
                         <View>
                             <Text style={styles.sheetTitle}>🧠 AI Models</Text>
                             <Text style={styles.sheetSubtitle}>All processing is 100% on-device</Text>
+                            <TouchableOpacity onPress={async () => {
+                                try {
+                                    const contents = await RNFS.readDirAssets('models');
+                                    Alert.alert('Asset Models Folder', JSON.stringify(contents.map(c => c.name), null, 2));
+                                } catch (e: any) {
+                                    Alert.alert('Read Dir Failed', e?.message || 'unknown error');
+                                }
+                            }} style={{ marginTop: 8, padding: 4, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 4 }}>
+                                <Text style={{ color: 'white', fontSize: 10 }}>Debug Assets</Text>
+                            </TouchableOpacity>
                         </View>
                         <TouchableOpacity onPress={onClose}>
                             <Text style={{ color: AppColors.textMuted, fontSize: 22 }}>✕</Text>
@@ -138,13 +148,6 @@ export const ModelDownloadSheet: React.FC<Props> = ({ visible, onClose }) => {
 
                     {/* Model rows */}
                     <View style={styles.models}>
-                        <ModelRow
-                            icon="🤖" name="Chat LLM" size="~400 MB"
-                            accent={AppColors.accentCyan}
-                            isDownloading={isLLMDownloading} isLoading={isLLMLoading}
-                            isLoaded={isLLMLoaded} progress={llmDownloadProgress}
-                            onDownload={downloadAndLoadLLM}
-                        />
                         <ModelRow
                             icon="🎤" name="Whisper STT" size="~75 MB"
                             accent={AppColors.accentViolet}
@@ -171,7 +174,7 @@ export const ModelDownloadSheet: React.FC<Props> = ({ visible, onClose }) => {
                     ) : (
                         <TouchableOpacity style={styles.doneBtn} onPress={downloadAndLoadAllModels}>
                             <LinearGradient colors={[AppColors.accentCyan, AppColors.accentViolet]} style={styles.doneBtnGrad}>
-                                <Text style={styles.doneBtnText}>⬇ Download All Models</Text>
+                                <Text style={styles.doneBtnText}>📦 Unpack Local Models</Text>
                             </LinearGradient>
                         </TouchableOpacity>
                     )}

@@ -27,6 +27,11 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "ai.runanywhere.starter"
+    
+    aaptOptions {
+        noCompress 'gz', 'tar', 'tar.gz', 'zip', 'onnx', 'bin', 'bundle'
+    }
+
     defaultConfig {
         applicationId "ai.runanywhere.starter"
         minSdkVersion rootProject.ext.minSdkVersion
