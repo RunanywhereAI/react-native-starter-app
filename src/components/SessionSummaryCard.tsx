@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 import { Session } from '../types/session';
 import { AppColors } from '../theme';
 import { getModeConfig } from '../ai/patternLibrary';
@@ -11,7 +10,7 @@ interface SessionSummaryCardProps {
 }
 
 /**
- * SessionSummaryCard - Card for displaying past session summary
+ * SessionSummaryCard - Transaction-style session card (like the reference image)
  */
 export const SessionSummaryCard: React.FC<SessionSummaryCardProps> = ({ session, onPress }) => {
   const formatDate = (timestamp: number): string => {
@@ -19,203 +18,108 @@ export const SessionSummaryCard: React.FC<SessionSummaryCardProps> = ({ session,
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
     if (days === 0) {
-      return 'Today';
+      return 'Today, ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     } else if (days === 1) {
-      return 'Yesterday';
-    } else if (days < 7) {
-      return `${days} days ago`;
+      return 'Yesterday, ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     } else {
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' +
+        date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     }
   };
 
   const formatDuration = (ms: number): string => {
     const minutes = Math.floor(ms / 60000);
-    const seconds = Math.floor((ms % 60000) / 1000);
-    return `${minutes}m ${seconds}s`;
+    return `${minutes}min`;
   };
 
-  const getFocusScoreColor = (score: number): string => {
-    if (score >= 80) return AppColors.success;
-    if (score >= 60) return AppColors.warning;
-    return AppColors.error;
+  const getFocusColor = (score: number): string => {
+    if (score >= 80) return '#34C759';
+    if (score >= 60) return '#FF9F0A';
+    return '#FF3B30';
+  };
+
+  const getIconBg = (index: number): string => {
+    const colors = ['#EDE9FE', '#DCFCE7', '#FEF3C7', '#FCE7F3', '#DBEAFE'];
+    return colors[index % colors.length];
   };
 
   const modeConfig = getModeConfig(session.mode);
 
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
-      <LinearGradient
-        colors={[AppColors.surfaceCard, AppColors.surfaceElevated]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.container}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.modeTag}>
-            <Text style={styles.modeIcon}>{modeConfig.icon}</Text>
-            <Text style={styles.modeText}>{modeConfig.displayName}</Text>
-          </View>
-          <Text style={styles.date}>{formatDate(session.timestamp)}</Text>
-        </View>
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={styles.container}>
+      {/* Icon */}
+      <View style={[styles.iconCircle, { backgroundColor: getIconBg(session.timestamp % 5) }]}>
+        <Text style={styles.modeIcon}>{modeConfig.icon}</Text>
+      </View>
 
-        {/* Stats Row */}
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Duration</Text>
-            <Text style={styles.statValue}>{formatDuration(session.duration)}</Text>
-          </View>
+      {/* Info */}
+      <View style={styles.info}>
+        <Text style={styles.modeName}>{modeConfig.displayName}</Text>
+        <Text style={styles.date}>{formatDate(session.timestamp)}</Text>
+      </View>
 
-          <View style={styles.divider} />
-
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Focus Score</Text>
-            <Text
-              style={[
-                styles.statValue,
-                { color: getFocusScoreColor(session.cognitiveMetrics.focusScore) },
-              ]}
-            >
-              {Math.round(session.cognitiveMetrics.focusScore)}%
-            </Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Patterns</Text>
-            <Text style={styles.statValue}>{session.detectedPatterns.length}</Text>
-          </View>
-        </View>
-
-        {/* Key Insights */}
-        {session.summary.keyInsights.length > 0 && (
-          <View style={styles.insightBox}>
-            <Text style={styles.insightIcon}>💡</Text>
-            <Text style={styles.insightText} numberOfLines={2}>
-              {session.summary.keyInsights[0]}
-            </Text>
-          </View>
-        )}
-
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            {session.transcript.length} transcript chunks • {session.summary.objectionCount}{' '}
-            objections
-          </Text>
-          <Text style={styles.viewDetails}>View Details →</Text>
-        </View>
-      </LinearGradient>
+      {/* Score */}
+      <View style={styles.scoreContainer}>
+        <Text style={[styles.score, { color: getFocusColor(session.cognitiveMetrics.focusScore) }]}>
+          {Math.round(session.cognitiveMetrics.focusScore)}%
+        </Text>
+        <Text style={styles.duration}>{formatDuration(session.duration)}</Text>
+      </View>
     </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: 16,
-    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
     padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: AppColors.textMuted + '20',
-    elevation: 4,
+    borderRadius: 18,
+    marginBottom: 10,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
     shadowRadius: 4,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  iconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-  },
-  modeTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: AppColors.accentCyan + '20',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    marginRight: 14,
   },
   modeIcon: {
-    fontSize: 16,
-    marginRight: 6,
+    fontSize: 22,
   },
-  modeText: {
-    fontSize: 13,
+  info: {
+    flex: 1,
+  },
+  modeName: {
+    fontSize: 16,
     fontWeight: '600',
-    color: AppColors.accentCyan,
+    color: AppColors.textPrimary,
+    marginBottom: 3,
   },
   date: {
     fontSize: 12,
-    color: AppColors.textSecondary,
+    color: AppColors.textMuted,
+    fontWeight: '400',
   },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 16,
+  scoreContainer: {
+    alignItems: 'flex-end',
   },
-  statItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  statLabel: {
-    fontSize: 11,
-    color: AppColors.textSecondary,
-    marginBottom: 4,
-  },
-  statValue: {
-    fontSize: 16,
+  score: {
+    fontSize: 17,
     fontWeight: '700',
-    color: AppColors.textPrimary,
+    marginBottom: 2,
   },
-  divider: {
-    width: 1,
-    backgroundColor: AppColors.textMuted + '30',
-    marginHorizontal: 8,
-  },
-  insightBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: AppColors.primaryDark + '80',
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 12,
-  },
-  insightIcon: {
-    fontSize: 16,
-    marginRight: 8,
-  },
-  insightText: {
-    flex: 1,
-    fontSize: 13,
-    color: AppColors.textSecondary,
-    lineHeight: 18,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: AppColors.textMuted + '20',
-  },
-  footerText: {
+  duration: {
     fontSize: 11,
     color: AppColors.textMuted,
-  },
-  viewDetails: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: AppColors.accentCyan,
+    fontWeight: '500',
   },
 });
