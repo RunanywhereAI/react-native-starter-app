@@ -1,12 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  StatusBar,
-  Alert,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar, Alert,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -27,76 +21,39 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ navigation, rout
   const { sessionId } = route.params;
   const { getSession, deleteSession } = useSessionAnalyzer();
   const [session, setSession] = useState<Session | null>(null);
-  const [selectedTab, setSelectedTab] = useState<'transcript' | 'patterns' | 'analysis'>(
-    'analysis'
-  );
+  const [selectedTab, setSelectedTab] = useState<'transcript' | 'patterns' | 'analysis'>('analysis');
 
-  useEffect(() => {
-    loadSession();
-  }, [sessionId]);
+  useEffect(() => { loadSession(); }, [sessionId]);
 
   const loadSession = async () => {
-    const loadedSession = await getSession(sessionId);
-    if (loadedSession) {
-      setSession(loadedSession);
-    } else {
-      Alert.alert('Error', 'Session not found', [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
-    }
+    const s = await getSession(sessionId);
+    if (s) setSession(s);
+    else Alert.alert('Error', 'Session not found', [{ text: 'OK', onPress: () => navigation.goBack() }]);
   };
 
   const handleDelete = () => {
-    Alert.alert(
-      'Delete Session',
-      'Are you sure you want to delete this session? This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteSession(sessionId);
-            navigation.goBack();
-          },
-        },
-      ]
-    );
+    Alert.alert('Delete Session', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => { await deleteSession(sessionId); navigation.goBack(); } },
+    ]);
   };
 
-  if (!session) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <Text style={styles.loadingText}>Loading session...</Text>
-      </View>
-    );
-  }
+  if (!session) return (
+    <View style={[styles.container, styles.centered]}>
+      <Text style={styles.loadingText}>Loading session...</Text>
+    </View>
+  );
 
   const modeConfig = getModeConfig(session.mode);
-
-  const formatDate = (timestamp: number): string => {
-    const date = new Date(timestamp);
-    return date.toLocaleString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const formatDuration = (ms: number): string => {
-    const minutes = Math.floor(ms / 60000);
-    const seconds = Math.floor((ms % 60000) / 1000);
-    return `${minutes}m ${seconds}s`;
-  };
+  const formatDate = (t: number) => new Date(t).toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const formatDuration = (ms: number) => { const m = Math.floor(ms / 60000); const s = Math.floor((ms % 60000) / 1000); return `${m}m ${s}s`; };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={AppColors.primaryDark} />
+      <StatusBar barStyle="light-content" backgroundColor="#7B61FF" />
 
       {/* Header */}
-      <LinearGradient colors={[AppColors.primaryDark, AppColors.primaryMid]} style={styles.header}>
+      <LinearGradient colors={['#7B61FF', '#9B82FF', '#B19CFF']} style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.modeTag}>
             <Text style={styles.modeIcon}>{modeConfig.icon}</Text>
@@ -106,26 +63,21 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ navigation, rout
             <Text style={styles.deleteIcon}>🗑️</Text>
           </TouchableOpacity>
         </View>
-
         <Text style={styles.dateText}>{formatDate(session.timestamp)}</Text>
-
         <View style={styles.statsRow}>
-          <View style={styles.headerStat}>
+          <View style={styles.headerStatCard}>
             <Text style={styles.headerStatLabel}>Duration</Text>
             <Text style={styles.headerStatValue}>{formatDuration(session.duration)}</Text>
           </View>
-          <View style={styles.headerDivider} />
-          <View style={styles.headerStat}>
+          <View style={styles.headerStatCard}>
             <Text style={styles.headerStatLabel}>Patterns</Text>
             <Text style={styles.headerStatValue}>{session.detectedPatterns.length}</Text>
           </View>
-          <View style={styles.headerDivider} />
-          <View style={styles.headerStat}>
+          <View style={styles.headerStatCard}>
             <Text style={styles.headerStatLabel}>Words</Text>
             <Text style={styles.headerStatValue}>{session.cognitiveMetrics.totalWords}</Text>
           </View>
         </View>
-
         <View style={styles.focusSection}>
           <CognitiveMeter focusScore={session.cognitiveMetrics.focusScore} size={80} />
         </View>
@@ -133,158 +85,95 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ navigation, rout
 
       {/* Tabs */}
       <View style={styles.tabs}>
-        <TouchableOpacity
-          style={[styles.tab, selectedTab === 'analysis' && styles.tabActive]}
-          onPress={() => setSelectedTab('analysis')}
-        >
-          <Text style={[styles.tabText, selectedTab === 'analysis' && styles.tabTextActive]}>
-            Analysis
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, selectedTab === 'patterns' && styles.tabActive]}
-          onPress={() => setSelectedTab('patterns')}
-        >
-          <Text style={[styles.tabText, selectedTab === 'patterns' && styles.tabTextActive]}>
-            Patterns
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, selectedTab === 'transcript' && styles.tabActive]}
-          onPress={() => setSelectedTab('transcript')}
-        >
-          <Text style={[styles.tabText, selectedTab === 'transcript' && styles.tabTextActive]}>
-            Transcript
-          </Text>
-        </TouchableOpacity>
+        {(['analysis', 'patterns', 'transcript'] as const).map((tab) => (
+          <TouchableOpacity key={tab} style={[styles.tab, selectedTab === tab && styles.tabActive]} onPress={() => setSelectedTab(tab)}>
+            <Text style={[styles.tabText, selectedTab === tab && styles.tabTextActive]}>
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {/* Content */}
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {selectedTab === 'analysis' && (
           <View>
-            {/* Key Insights */}
             {session.summary.keyInsights.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>💡 Key Insights</Text>
-                {session.summary.keyInsights.map((insight, index) => (
-                  <View key={index} style={styles.insightCard}>
+                {session.summary.keyInsights.map((insight, i) => (
+                  <View key={i} style={styles.insightCard}>
+                    <View style={styles.insightAccent} />
                     <Text style={styles.insightText}>{insight}</Text>
                   </View>
                 ))}
               </View>
             )}
-
-            {/* Tactical Suggestions */}
             {session.summary.tacticalSuggestions.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>🎯 Tactical Suggestions</Text>
-                {session.summary.tacticalSuggestions.map((suggestion, index) => (
-                  <View key={index} style={styles.suggestionCard}>
-                    <Text style={styles.suggestionNumber}>{index + 1}</Text>
-                    <Text style={styles.suggestionText}>{suggestion}</Text>
+                {session.summary.tacticalSuggestions.map((s, i) => (
+                  <View key={i} style={styles.suggestionCard}>
+                    <View style={styles.suggestionNum}><Text style={styles.suggestionNumText}>{i + 1}</Text></View>
+                    <Text style={styles.suggestionText}>{s}</Text>
                   </View>
                 ))}
               </View>
             )}
-
-            {/* Leverage Moments */}
             {session.summary.leverageMoments.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>✅ Leverage Moments</Text>
-                {session.summary.leverageMoments.map((moment, index) => (
-                  <View key={index} style={styles.momentCard}>
-                    <Text style={styles.momentText}>{moment}</Text>
-                  </View>
+                {session.summary.leverageMoments.map((m, i) => (
+                  <View key={i} style={styles.momentCard}><Text style={styles.momentText}>{m}</Text></View>
                 ))}
               </View>
             )}
-
-            {/* Missed Opportunities */}
             {session.summary.missedOpportunities.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>⚠️ Missed Opportunities</Text>
-                {session.summary.missedOpportunities.map((opportunity, index) => (
-                  <View key={index} style={styles.opportunityCard}>
-                    <Text style={styles.opportunityText}>{opportunity}</Text>
-                  </View>
+                {session.summary.missedOpportunities.map((o, i) => (
+                  <View key={i} style={styles.oppCard}><Text style={styles.oppText}>{o}</Text></View>
                 ))}
               </View>
             )}
-
-            {/* Cognitive Metrics */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>🧠 Cognitive Metrics</Text>
               <View style={styles.metricsGrid}>
-                <View style={styles.metricCard}>
-                  <Text style={styles.metricValue}>{session.cognitiveMetrics.speechGaps}</Text>
-                  <Text style={styles.metricLabel}>Speech Gaps</Text>
-                </View>
-                <View style={styles.metricCard}>
-                  <Text style={styles.metricValue}>{session.cognitiveMetrics.fillerWords}</Text>
-                  <Text style={styles.metricLabel}>Filler Words</Text>
-                </View>
-                <View style={styles.metricCard}>
-                  <Text style={styles.metricValue}>
-                    {Math.round(session.cognitiveMetrics.avgSpeechRate)}
-                  </Text>
-                  <Text style={styles.metricLabel}>WPM</Text>
-                </View>
+                <View style={styles.metricCard}><Text style={styles.metricValue}>{session.cognitiveMetrics.speechGaps}</Text><Text style={styles.metricLabel}>Speech Gaps</Text></View>
+                <View style={styles.metricCard}><Text style={styles.metricValue}>{session.cognitiveMetrics.fillerWords}</Text><Text style={styles.metricLabel}>Filler Words</Text></View>
+                <View style={styles.metricCard}><Text style={styles.metricValue}>{Math.round(session.cognitiveMetrics.avgSpeechRate)}</Text><Text style={styles.metricLabel}>WPM</Text></View>
               </View>
             </View>
           </View>
         )}
-
         {selectedTab === 'patterns' && (
           <View>
-            {session.detectedPatterns.map((pattern, index) => {
-              const patternDef = getPatternDefinition(pattern.pattern);
+            {session.detectedPatterns.map((p) => {
+              const d = getPatternDefinition(p.pattern);
               return (
-                <View key={pattern.id} style={styles.patternCard}>
+                <View key={p.id} style={styles.patternCard}>
                   <View style={styles.patternHeader}>
-                    <Text style={styles.patternName}>{patternDef.displayName}</Text>
-                    <View style={styles.patternBadge}>
-                      <Text style={styles.patternBadgeText}>
-                        {Math.round(pattern.confidenceScore)}%
-                      </Text>
-                    </View>
+                    <Text style={styles.patternName}>{d.displayName}</Text>
+                    <View style={styles.patternBadge}><Text style={styles.patternBadgeText}>{Math.round(p.confidenceScore)}%</Text></View>
                   </View>
-                  <Text style={styles.patternDescription}>{patternDef.description}</Text>
-                  <View style={styles.patternSuggestion}>
-                    <Text style={styles.patternSuggestionLabel}>Suggestion:</Text>
-                    <Text style={styles.patternSuggestionText}>{pattern.suggestion}</Text>
-                  </View>
-                  {pattern.context && (
-                    <View style={styles.patternContext}>
-                      <Text style={styles.patternContextText}>"{pattern.context}"</Text>
-                    </View>
-                  )}
+                  <Text style={styles.patternDesc}>{d.description}</Text>
+                  <View style={styles.patternSugg}><Text style={styles.patternSuggLabel}>Suggestion:</Text><Text style={styles.patternSuggText}>{p.suggestion}</Text></View>
+                  {p.context && <View style={styles.patternCtx}><Text style={styles.patternCtxText}>"{p.context}"</Text></View>}
                 </View>
               );
             })}
-            {session.detectedPatterns.length === 0 && (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>No patterns detected</Text>
-              </View>
-            )}
+            {session.detectedPatterns.length === 0 && <View style={styles.emptyState}><Text style={styles.emptyText}>No patterns detected</Text></View>}
           </View>
         )}
-
         {selectedTab === 'transcript' && (
           <View>
-            {session.transcript.map((chunk, index) => (
-              <View key={chunk.id} style={styles.transcriptChunk}>
-                <Text style={styles.transcriptTime}>
-                  {new Date(chunk.timestamp).toLocaleTimeString()}
-                </Text>
-                <Text style={styles.transcriptText}>{chunk.text}</Text>
+            {session.transcript.map((c) => (
+              <View key={c.id} style={styles.tChunk}>
+                <Text style={styles.tTime}>{new Date(c.timestamp).toLocaleTimeString()}</Text>
+                <Text style={styles.tText}>{c.text}</Text>
               </View>
             ))}
-            {session.transcript.length === 0 && (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>No transcript available</Text>
-              </View>
-            )}
+            {session.transcript.length === 0 && <View style={styles.emptyState}><Text style={styles.emptyText}>No transcript available</Text></View>}
           </View>
         )}
       </ScrollView>
@@ -293,290 +182,71 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ navigation, rout
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: AppColors.primaryDark,
-  },
-  centered: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: AppColors.textSecondary,
-  },
-  header: {
-    paddingTop: 50,
-    paddingBottom: 24,
-    paddingHorizontal: 20,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  modeTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: AppColors.accentCyan + '20',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  modeIcon: {
-    fontSize: 16,
-    marginRight: 6,
-  },
-  modeText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: AppColors.accentCyan,
-  },
-  deleteButton: {
-    padding: 8,
-  },
-  deleteIcon: {
-    fontSize: 24,
-  },
-  dateText: {
-    fontSize: 14,
-    color: AppColors.textSecondary,
-    marginBottom: 16,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 20,
-  },
-  headerStat: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  headerStatLabel: {
-    fontSize: 12,
-    color: AppColors.textSecondary,
-    marginBottom: 4,
-  },
-  headerStatValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: AppColors.textPrimary,
-  },
-  headerDivider: {
-    width: 1,
-    backgroundColor: AppColors.textMuted + '30',
-  },
-  focusSection: {
-    alignItems: 'center',
-  },
-  tabs: {
-    flexDirection: 'row',
-    backgroundColor: AppColors.surfaceCard,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-    marginHorizontal: 16,
-    borderRadius: 12,
-    marginTop: -6,
-    marginBottom: 16,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: 8,
-  },
-  tabActive: {
-    backgroundColor: AppColors.accentCyan,
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: AppColors.textSecondary,
-  },
-  tabTextActive: {
-    color: AppColors.textPrimary,
-  },
-  content: {
-    flex: 1,
-  },
-  contentContainer: {
-    padding: 16,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: AppColors.textPrimary,
-    marginBottom: 12,
-  },
-  insightCard: {
-    backgroundColor: AppColors.surfaceCard,
-    padding: 14,
-    borderRadius: 10,
-    marginBottom: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: AppColors.accentCyan,
-  },
-  insightText: {
-    fontSize: 14,
-    color: AppColors.textPrimary,
-    lineHeight: 20,
-  },
-  suggestionCard: {
-    flexDirection: 'row',
-    backgroundColor: AppColors.surfaceCard,
-    padding: 14,
-    borderRadius: 10,
-    marginBottom: 8,
-    alignItems: 'flex-start',
-  },
-  suggestionNumber: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: AppColors.accentViolet,
-    marginRight: 12,
-    marginTop: 2,
-  },
-  suggestionText: {
-    flex: 1,
-    fontSize: 14,
-    color: AppColors.textPrimary,
-    lineHeight: 20,
-  },
-  momentCard: {
-    backgroundColor: AppColors.success + '20',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  momentText: {
-    fontSize: 13,
-    color: AppColors.textPrimary,
-    lineHeight: 18,
-  },
-  opportunityCard: {
-    backgroundColor: AppColors.warning + '20',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  opportunityText: {
-    fontSize: 13,
-    color: AppColors.textPrimary,
-    lineHeight: 18,
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  metricCard: {
-    flex: 1,
-    backgroundColor: AppColors.surfaceCard,
-    padding: 16,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  metricValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: AppColors.accentCyan,
-    marginBottom: 4,
-  },
-  metricLabel: {
-    fontSize: 11,
-    color: AppColors.textSecondary,
-    textAlign: 'center',
-  },
-  patternCard: {
-    backgroundColor: AppColors.surfaceCard,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  patternHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  patternName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: AppColors.textPrimary,
-    flex: 1,
-  },
-  patternBadge: {
-    backgroundColor: AppColors.accentCyan + '30',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  patternBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: AppColors.accentCyan,
-  },
-  patternDescription: {
-    fontSize: 13,
-    color: AppColors.textSecondary,
-    marginBottom: 10,
-    lineHeight: 18,
-  },
-  patternSuggestion: {
-    backgroundColor: AppColors.primaryDark + '80',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  patternSuggestionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: AppColors.textMuted,
-    marginBottom: 4,
-  },
-  patternSuggestionText: {
-    fontSize: 13,
-    color: AppColors.textPrimary,
-    lineHeight: 18,
-  },
-  patternContext: {
-    padding: 10,
-    backgroundColor: AppColors.primaryDark + '40',
-    borderRadius: 8,
-    borderLeftWidth: 2,
-    borderLeftColor: AppColors.accentViolet,
-  },
-  patternContextText: {
-    fontSize: 12,
-    fontStyle: 'italic',
-    color: AppColors.textSecondary,
-    lineHeight: 16,
-  },
-  transcriptChunk: {
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: AppColors.textMuted + '20',
-  },
-  transcriptTime: {
-    fontSize: 12,
-    color: AppColors.textMuted,
-    marginBottom: 6,
-  },
-  transcriptText: {
-    fontSize: 15,
-    color: AppColors.textPrimary,
-    lineHeight: 22,
-  },
-  emptyState: {
-    padding: 40,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    color: AppColors.textSecondary,
-  },
+  container: { flex: 1, backgroundColor: AppColors.primaryLight },
+  centered: { justifyContent: 'center', alignItems: 'center' },
+  loadingText: { fontSize: 16, color: AppColors.textSecondary },
+
+  header: { paddingTop: 50, paddingBottom: 24, paddingHorizontal: 20, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  modeTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 10 },
+  modeIcon: { fontSize: 16, marginRight: 6 },
+  modeText: { fontSize: 13, fontWeight: '600', color: '#FFFFFF' },
+  deleteButton: { padding: 8, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 10 },
+  deleteIcon: { fontSize: 20 },
+  dateText: { fontSize: 14, color: 'rgba(255,255,255,0.7)', marginBottom: 16 },
+
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  headerStatCard: { flex: 1, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 16, padding: 14 },
+  headerStatLabel: { fontSize: 11, color: 'rgba(255,255,255,0.6)', marginBottom: 6, fontWeight: '500' },
+  headerStatValue: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  focusSection: { alignItems: 'center' },
+
+  tabs: { flexDirection: 'row', backgroundColor: '#FFFFFF', paddingHorizontal: 4, paddingVertical: 4, marginHorizontal: 16, borderRadius: 16, marginTop: -6, marginBottom: 16, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6 },
+  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 12 },
+  tabActive: { backgroundColor: '#7B61FF' },
+  tabText: { fontSize: 14, fontWeight: '600', color: AppColors.textSecondary },
+  tabTextActive: { color: '#FFFFFF' },
+
+  content: { flex: 1 },
+  contentContainer: { padding: 16 },
+  section: { marginBottom: 24 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: AppColors.textPrimary, marginBottom: 12 },
+
+  insightCard: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 16, marginBottom: 8, overflow: 'hidden', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
+  insightAccent: { width: 4, backgroundColor: '#7B61FF' },
+  insightText: { flex: 1, fontSize: 14, color: AppColors.textPrimary, lineHeight: 20, padding: 14 },
+
+  suggestionCard: { flexDirection: 'row', backgroundColor: '#FFFFFF', padding: 14, borderRadius: 16, marginBottom: 8, alignItems: 'flex-start', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
+  suggestionNum: { width: 28, height: 28, borderRadius: 10, backgroundColor: '#EDE9FE', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  suggestionNumText: { fontSize: 14, fontWeight: '700', color: '#7B61FF' },
+  suggestionText: { flex: 1, fontSize: 14, color: AppColors.textPrimary, lineHeight: 20 },
+
+  momentCard: { backgroundColor: '#DCFCE7', padding: 14, borderRadius: 14, marginBottom: 8 },
+  momentText: { fontSize: 13, color: '#166534', lineHeight: 18 },
+  oppCard: { backgroundColor: '#FEF3C7', padding: 14, borderRadius: 14, marginBottom: 8 },
+  oppText: { fontSize: 13, color: '#92400E', lineHeight: 18 },
+
+  metricsGrid: { flexDirection: 'row', gap: 10 },
+  metricCard: { flex: 1, backgroundColor: '#FFFFFF', padding: 18, borderRadius: 18, alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
+  metricValue: { fontSize: 24, fontWeight: '700', color: '#7B61FF', marginBottom: 6 },
+  metricLabel: { fontSize: 11, color: AppColors.textSecondary, textAlign: 'center', fontWeight: '500' },
+
+  patternCard: { backgroundColor: '#FFFFFF', padding: 16, borderRadius: 18, marginBottom: 12, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
+  patternHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  patternName: { fontSize: 16, fontWeight: '700', color: AppColors.textPrimary, flex: 1 },
+  patternBadge: { backgroundColor: '#EDE9FE', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  patternBadgeText: { fontSize: 12, fontWeight: '700', color: '#7B61FF' },
+  patternDesc: { fontSize: 13, color: AppColors.textSecondary, marginBottom: 10, lineHeight: 18 },
+  patternSugg: { backgroundColor: '#F8F5FF', padding: 12, borderRadius: 12, marginBottom: 8 },
+  patternSuggLabel: { fontSize: 11, fontWeight: '600', color: AppColors.textMuted, marginBottom: 4 },
+  patternSuggText: { fontSize: 13, color: AppColors.textPrimary, lineHeight: 18 },
+  patternCtx: { padding: 12, backgroundColor: '#F9FAFB', borderRadius: 12, borderLeftWidth: 3, borderLeftColor: '#7B61FF' },
+  patternCtxText: { fontSize: 12, fontStyle: 'italic', color: AppColors.textSecondary, lineHeight: 16 },
+
+  tChunk: { marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  tTime: { fontSize: 12, color: AppColors.textMuted, marginBottom: 6, fontWeight: '500' },
+  tText: { fontSize: 15, color: AppColors.textPrimary, lineHeight: 22 },
+
+  emptyState: { padding: 40, alignItems: 'center' },
+  emptyText: { fontSize: 16, color: AppColors.textSecondary },
 });
