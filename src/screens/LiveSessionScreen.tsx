@@ -27,44 +27,82 @@ export const LiveSessionScreen: React.FC<LiveSessionScreenProps> = ({ navigation
     useLiveTranscription();
   const [hasStarted, setHasStarted] = useState(false);
   const [modelReady, setModelReady] = useState(false);
-  const { downloadAndLoadSTT, isSTTLoaded, isSTTLoading } = useModelService();
+  const [modelError, setModelError] = useState(false);
+  const { downloadAndLoadSTT, isSTTLoaded, isSTTLoading, isSTTDownloading, isSDKReady, sttDownloadProgress } = useModelService();
 
   const modeConfig = getModeConfig(mode);
 
   // Counter-strategy hook — processes detected patterns with cooldown & threshold
   const { activeStrategy } = useCounterStrategy(sessionState.detectedPatterns);
 
+  // Kick off model download+load when SDK is ready
   useEffect(() => {
-    const checkModelStatus = async () => {
+    if (!isSDKReady) {
+      console.log('[LiveSessionScreen] ⏳ Waiting for SDK to initialize...');
+      return;
+    }
+
+    const initModel = async () => {
+      console.log('[LiveSessionScreen] 🔍 Checking STT model status...');
+
+      // Check if debug mode is enabled
       const settings = await LocalStorageService.getSettings();
       const debugMode = settings.debugMode || false;
-      if (debugMode) { setModelReady(true); return; }
-      if (isSTTLoaded) { setModelReady(true); return; }
-      if (isSTTLoading) { return; }
-      try {
-        await downloadAndLoadSTT();
-        const ready = await checkSTTModelReady();
-        if (ready) { setModelReady(true); }
-        else { handleModelLoadFailure(); }
-      } catch (err) { handleModelLoadFailure(); }
+
+      if (debugMode) {
+        console.log('[LiveSessionScreen] 🐛 Debug mode enabled, skipping STT model check');
+        setModelReady(true);
+        return;
+      }
+
+      // If already loaded, we're done
+      if (isSTTLoaded) {
+        console.log('[LiveSessionScreen] ✅ STT model already loaded');
+        setModelReady(true);
+        return;
+      }
+
+      // Kick off download+load (fire and forget — we'll watch isSTTLoaded state)
+      console.log('[LiveSessionScreen] 🤖 Starting STT model download and load...');
+      downloadAndLoadSTT().catch((err) => {
+        console.error('[LiveSessionScreen] ❌ downloadAndLoadSTT error:', err);
+        setModelError(true);
+      });
     };
 
-    const handleModelLoadFailure = () => {
-      Alert.alert('Model Loading Failed',
-        'The speech recognition model could not be loaded.\n\nOptions:\n• Enable Debug Mode in Settings\n• Check your internet\n• Try again',
+    initModel();
+  }, [isSDKReady]); // Only run once when SDK becomes ready
+
+  // Watch for model loading completion from ModelService state
+  useEffect(() => {
+    if (isSTTLoaded && !modelReady) {
+      console.log('[LiveSessionScreen] ✅ STT model loaded (via ModelService state)');
+      setModelReady(true);
+      setModelError(false);
+    }
+  }, [isSTTLoaded, modelReady]);
+
+  // Watch for errors — show failure only when download/load finishes with error 
+  // (not while still downloading)
+  useEffect(() => {
+    if (modelError && !isSTTDownloading && !isSTTLoading && !isSTTLoaded) {
+      Alert.alert(
+        'Model Loading Failed',
+        'The speech recognition model could not be loaded.\n\nOptions:\n• Enable Debug Mode in Settings to test without audio\n• Check your internet connection\n• Try again',
         [
-          { text: 'Settings', onPress: () => navigation.navigate('Settings') },
-          { text: 'Try Again', onPress: () => { setModelReady(false); checkModelStatus(); } },
+          { text: 'Go to Settings', onPress: () => navigation.navigate('Settings') },
+          {
+            text: 'Try Again',
+            onPress: () => {
+              setModelError(false);
+              downloadAndLoadSTT().catch(() => setModelError(true));
+            },
+          },
           { text: 'Cancel', onPress: () => navigation.goBack() },
         ]
       );
-    };
-    checkModelStatus();
-  }, [navigation, downloadAndLoadSTT, isSTTLoaded, isSTTLoading]);
-
-  useEffect(() => {
-    if (isSTTLoaded && !modelReady) setModelReady(true);
-  }, [isSTTLoaded, modelReady]);
+    }
+  }, [modelError, isSTTDownloading, isSTTLoading, isSTTLoaded, navigation, downloadAndLoadSTT]);
 
   useEffect(() => {
     if (error) Alert.alert('Error', error, [{ text: 'OK' }]);
@@ -112,22 +150,33 @@ export const LiveSessionScreen: React.FC<LiveSessionScreenProps> = ({ navigation
   const recentPatterns = sessionState.detectedPatterns.slice(-3).reverse();
 
   if (!modelReady) {
+    const loadingTitle = !isSDKReady
+      ? '🔧 Initializing AI Engine...'
+      : isSTTDownloading
+        ? `📥 Downloading Model... ${Math.round(sttDownloadProgress)}%`
+        : isSTTLoading
+          ? '🤖 Loading AI Model...'
+          : '🤖 Preparing AI Model...';
+    const loadingText = !isSDKReady
+      ? 'Setting up on-device AI'
+      : isSTTDownloading
+        ? 'First-time setup (~75MB)'
+        : isSTTLoading
+          ? 'Almost ready...'
+          : 'Preparing speech recognition';
+    const loadingSubtext = !isSDKReady
+      ? 'This only takes a moment'
+      : isSTTDownloading
+        ? 'This only happens once'
+        : 'Please wait...';
+
     return (
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor={AppColors.primaryLight} />
         <View style={styles.loadingContainer}>
-          <View style={styles.loadingIconCircle}>
-            <Text style={styles.loadingIcon}>{isSTTLoading ? '📥' : '🤖'}</Text>
-          </View>
-          <Text style={styles.loadingTitle}>
-            {isSTTLoading ? 'Downloading Model...' : 'Loading AI Model...'}
-          </Text>
-          <Text style={styles.loadingText}>
-            {isSTTLoading ? 'First-time setup (~75MB)' : 'Preparing speech recognition'}
-          </Text>
-          <View style={styles.loadingBarBg}>
-            <LinearGradient colors={['#7B61FF', '#9B82FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.loadingBar} />
-          </View>
+          <Text style={styles.loadingTitle}>{loadingTitle}</Text>
+          <Text style={styles.loadingText}>{loadingText}</Text>
+          <Text style={styles.loadingText}>{loadingSubtext}</Text>
         </View>
       </View>
     );

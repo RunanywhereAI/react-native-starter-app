@@ -20,8 +20,32 @@ const { NativeAudioModule } = NativeModules;
  */
 export const checkSTTModelReady = async (): Promise<boolean> => {
   try {
+    // First check if a model is actually loaded in the ONNX backend
+    const isLoaded = await RunAnywhere.isSTTModelLoaded();
+    if (isLoaded) {
+      console.log('[SpeechService] ✅ STT model is loaded (isSTTModelLoaded=true)');
+      return true;
+    }
+
+    // Fallback: check if model has a local path (downloaded but maybe not loaded)
     const modelInfo = await RunAnywhere.getModelInfo('sherpa-onnx-whisper-tiny.en');
-    return !!modelInfo?.localPath;
+    const hasLocalPath = !!modelInfo?.localPath;
+    console.log('[SpeechService] STT model check: isLoaded=false, hasLocalPath=', hasLocalPath);
+    
+    if (hasLocalPath) {
+      // Model is downloaded but not loaded - try to load it
+      console.log('[SpeechService] 🔄 Model downloaded but not loaded, attempting to load...');
+      try {
+        await RunAnywhere.loadSTTModel(modelInfo!.localPath!, 'whisper');
+        console.log('[SpeechService] ✅ STT model loaded successfully');
+        return true;
+      } catch (loadError) {
+        console.error('[SpeechService] ❌ Failed to load STT model:', loadError);
+        return false;
+      }
+    }
+
+    return false;
   } catch (error) {
     console.log('[SpeechService] STT model check failed:', error);
     return false;
@@ -230,9 +254,9 @@ export class SpeechService {
 
       console.log('[SpeechService] ✅ STT model ready');
 
-      // Use RunAnywhere.transcribe() API
-      console.log('[SpeechService] 🤖 Running STT inference...');
-      const result = await RunAnywhere.transcribe(audioPath);
+      // Use RunAnywhere.transcribeFile() API for file-based transcription
+      console.log('[SpeechService] 🤖 Running STT inference on file...');
+      const result = await RunAnywhere.transcribeFile(audioPath);
 
       const transcription = result.text || '';
       console.log('[SpeechService] ✅ Transcription complete');
@@ -256,13 +280,16 @@ export class SpeechService {
 
   /**
    * Start continuous transcription (every 5 seconds)
+   * Uses NativeAudioModule.getRecordingSnapshot() to get a WAV file
+   * of the accumulated audio, then transcribes it and sends only new text.
    */
   private startContinuousTranscription(): void {
     this.lastTranscriptionTime = Date.now();
+    let lastTranscribedText = '';
 
     this.transcriptionInterval = setInterval(async () => {
       try {
-        if (!this.isRecording || !this.recordingPath) {
+        if (!this.isRecording) {
           return;
         }
 
@@ -271,7 +298,6 @@ export class SpeechService {
         // Only transcribe if 5 seconds have passed since last transcription
         if (currentTime - this.lastTranscriptionTime >= 5000) {
           console.log('[SpeechService] 🔄 Performing continuous transcription...');
-          console.log('[SpeechService] 📁 Transcribing file:', this.recordingPath);
 
           // Check if STT model is ready
           const modelReady = await checkSTTModelReady();
@@ -280,17 +306,55 @@ export class SpeechService {
             return;
           }
 
-          // Try to transcribe the current recording
+          // Get a snapshot of the current recording as a WAV file
+          if (!NativeAudioModule) {
+            console.warn('[SpeechService] ⚠️ NativeAudioModule not available');
+            return;
+          }
+
           try {
-            const result = await RunAnywhere.transcribe(this.recordingPath);
-            const text = result.text || '';
+            const snapshot = await NativeAudioModule.getRecordingSnapshot();
+            const snapshotPath = snapshot.path;
 
-            console.log('[SpeechService] 📝 Transcription result length:', text.length, 'chars');
+            if (!snapshotPath || snapshot.fileSize === 0) {
+              console.log('[SpeechService] ⚠️ No audio data in snapshot yet');
+              return;
+            }
 
-            if (text && text.length > 0 && this.transcriptionCallback) {
-              console.log('[SpeechService] ✅ Continuous transcription result:', text);
-              this.transcriptionCallback(text, currentTime);
-              this.lastTranscriptionTime = currentTime;
+            console.log(
+              '[SpeechService] 📸 Got recording snapshot:',
+              snapshotPath,
+              'size:',
+              snapshot.fileSize
+            );
+
+            // Transcribe the snapshot file
+            const result = await RunAnywhere.transcribeFile(snapshotPath);
+            const fullText = (result.text || '').trim();
+
+            console.log('[SpeechService] 📝 Full transcription length:', fullText.length, 'chars');
+
+            if (fullText && fullText.length > 0) {
+              // Calculate delta: only send the NEW text since last transcription
+              let newText = fullText;
+
+              if (lastTranscribedText && fullText.startsWith(lastTranscribedText)) {
+                // The new transcription includes the old text, extract only the new part
+                newText = fullText.substring(lastTranscribedText.length).trim();
+              } else if (lastTranscribedText && fullText.length > lastTranscribedText.length) {
+                // Texts diverged, send the full new text
+                newText = fullText;
+              }
+
+              if (newText && newText.length > 0 && this.transcriptionCallback) {
+                console.log('[SpeechService] ✅ New transcription text:', newText);
+                this.transcriptionCallback(newText, currentTime);
+                this.lastTranscriptionTime = currentTime;
+              } else {
+                console.log('[SpeechService] ⚠️ No new text since last transcription');
+              }
+
+              lastTranscribedText = fullText;
             } else {
               console.log('[SpeechService] ⚠️ Empty transcription result');
             }

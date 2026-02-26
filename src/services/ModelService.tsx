@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { RunAnywhere, ModelCategory } from '@runanywhere/core';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { RunAnywhere, ModelCategory, SDKEnvironment } from '@runanywhere/core';
 import { LlamaCPP } from '@runanywhere/llamacpp';
 import { ONNX, ModelArtifactType } from '@runanywhere/onnx';
 
@@ -12,6 +12,10 @@ const MODEL_IDS = {
 } as const;
 
 interface ModelServiceState {
+  // SDK readiness
+  isSDKReady: boolean;
+  sdkError: string | null;
+  
   // Download state
   isLLMDownloading: boolean;
   isSTTDownloading: boolean;
@@ -56,6 +60,10 @@ interface ModelServiceProviderProps {
 }
 
 export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ children }) => {
+  // SDK readiness
+  const [isSDKReady, setIsSDKReady] = useState(false);
+  const [sdkError, setSDKError] = useState<string | null>(null);
+  
   // Download state
   const [isLLMDownloading, setIsLLMDownloading] = useState(false);
   const [isSTTDownloading, setIsSTTDownloading] = useState(false);
@@ -76,6 +84,40 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
   const [isTTSLoaded, setIsTTSLoaded] = useState(false);
   
   const isVoiceAgentReady = isLLMLoaded && isSTTLoaded && isTTSLoaded;
+
+  // Initialize SDK on mount
+  useEffect(() => {
+    const initializeSDK = async () => {
+      try {
+        console.log('[ModelService] 🚀 Initializing RunAnywhere SDK...');
+        
+        // Initialize SDK
+        await RunAnywhere.initialize({
+          environment: SDKEnvironment.Development,
+        });
+        console.log('[ModelService] ✅ SDK initialized');
+
+        // Register backends
+        console.log('[ModelService] 📦 Registering backends...');
+        await LlamaCPP.register();
+        await ONNX.register();
+        console.log('[ModelService] ✅ Backends registered');
+
+        // Register default models
+        console.log('[ModelService] 🤖 Registering default models...');
+        await registerDefaultModels();
+        console.log('[ModelService] ✅ Default models registered');
+
+        setIsSDKReady(true);
+        console.log('[ModelService] ✅ SDK fully ready');
+      } catch (error) {
+        console.error('[ModelService] ❌ SDK initialization failed:', error);
+        setSDKError(error instanceof Error ? error.message : 'SDK initialization failed');
+      }
+    };
+
+    initializeSDK();
+  }, []);
   
   // Check if model is downloaded (per docs: use getModelInfo and check localPath)
   const checkModelDownloaded = useCallback(async (modelId: string): Promise<boolean> => {
@@ -123,36 +165,133 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
   
   // Download and load STT
   const downloadAndLoadSTT = useCallback(async () => {
-    if (isSTTDownloading || isSTTLoading) return;
+    if (isSTTDownloading || isSTTLoading) {
+      console.log('[ModelService] ⏭️ STT download/load already in progress, skipping');
+      return;
+    }
+
+    if (!isSDKReady) {
+      console.log('[ModelService] ⏳ SDK not ready yet, waiting...');
+      return;
+    }
     
     try {
-      const isDownloaded = await checkModelDownloaded(MODEL_IDS.stt);
+      console.log('[ModelService] 🎤 Starting STT download and load...');
       
-      if (!isDownloaded) {
+      // Step 1: Check if model files already exist on disk (e.g., pre-pushed via adb)
+      let modelLocalPath: string | null = null;
+      
+      try {
+        // Check if the SDK already knows about the model
+        const isDownloaded = await checkModelDownloaded(MODEL_IDS.stt);
+        console.log('[ModelService] 📦 SDK reports model downloaded:', isDownloaded);
+        
+        if (isDownloaded) {
+          const info = await RunAnywhere.getModelInfo(MODEL_IDS.stt);
+          if (info?.localPath) {
+            modelLocalPath = info.localPath;
+            console.log('[ModelService] ✅ Model found via SDK at:', modelLocalPath);
+          }
+        }
+      } catch (checkErr) {
+        console.log('[ModelService] ⚠️ SDK check failed, trying filesystem:', checkErr);
+      }
+      
+      // If SDK doesn't know about it, check the filesystem directly
+      if (!modelLocalPath) {
+        try {
+          const RNFS = require('react-native-fs');
+          const documentsDir = RNFS.DocumentDirectoryPath;
+          const possiblePaths = [
+            `${documentsDir}/RunAnywhere/Models/ONNX/sherpa-onnx-whisper-tiny.en/sherpa-onnx-whisper-tiny.en`,
+            `${documentsDir}/RunAnywhere/Models/ONNX/sherpa-onnx-whisper-tiny.en`,
+          ];
+          
+          for (const path of possiblePaths) {
+            const exists = await RNFS.exists(path);
+            if (exists) {
+              // Verify it has model files
+              try {
+                const contents = await RNFS.readDir(path);
+                const hasOnnx = contents.some((f: any) => f.name.endsWith('.onnx'));
+                if (hasOnnx) {
+                  modelLocalPath = path;
+                  console.log('[ModelService] ✅ Model found on disk at:', path);
+                  console.log('[ModelService] 📁 Contents:', contents.map((f: any) => f.name).join(', '));
+                  break;
+                }
+              } catch {
+                // Not a directory, might be a file
+              }
+            }
+          }
+        } catch (fsErr) {
+          console.log('[ModelService] ⚠️ Filesystem check failed:', fsErr);
+        }
+      }
+      
+      // Step 2: Download if not found on disk
+      if (!modelLocalPath) {
         setIsSTTDownloading(true);
         setSTTDownloadProgress(0);
         
-        await RunAnywhere.downloadModel(MODEL_IDS.stt, (progress) => {
-          setSTTDownloadProgress(progress.progress * 100);
-        });
+        console.log('[ModelService] 📥 Model not found on disk, downloading...');
+        try {
+          await RunAnywhere.downloadModel(MODEL_IDS.stt, (progress) => {
+            const pct = progress.progress * 100;
+            setSTTDownloadProgress(pct);
+          });
+          console.log('[ModelService] ✅ STT model download completed');
+        } catch (downloadError: any) {
+          setIsSTTDownloading(false);
+          const errMsg = downloadError?.message || String(downloadError);
+          console.error('[ModelService] ❌ STT download failed:', errMsg);
+          const { Alert } = require('react-native');
+          Alert.alert('Download Error', `STT model download failed:\n\n${errMsg}`);
+          throw downloadError;
+        }
         
         setIsSTTDownloading(false);
+        
+        // Get the path from SDK after download
+        try {
+          const modelInfo = await RunAnywhere.getModelInfo(MODEL_IDS.stt);
+          modelLocalPath = modelInfo?.localPath || null;
+        } catch (e) {
+          console.error('[ModelService] ❌ Failed to get model path after download:', e);
+        }
       }
       
-      // Load the STT model (per docs: loadSTTModel(localPath, 'whisper'))
-      setIsSTTLoading(true);
-      const modelInfo = await RunAnywhere.getModelInfo(MODEL_IDS.stt);
-      if (modelInfo?.localPath) {
-        await RunAnywhere.loadSTTModel(modelInfo.localPath, 'whisper');
-        setIsSTTLoaded(true);
+      if (!modelLocalPath) {
+        const errMsg = 'Could not find model files on disk after download';
+        console.error('[ModelService] ❌', errMsg);
+        const { Alert } = require('react-native');
+        Alert.alert('Model Error', errMsg);
+        throw new Error(errMsg);
       }
+      
+      // Step 3: Load the STT model
+      setIsSTTLoading(true);
+      console.log('[ModelService] 🔄 Loading STT model from:', modelLocalPath);
+      try {
+        await RunAnywhere.loadSTTModel(modelLocalPath, 'whisper');
+        console.log('[ModelService] ✅ STT model loaded successfully');
+        setIsSTTLoaded(true);
+      } catch (loadError: any) {
+        const errMsg = loadError?.message || String(loadError);
+        console.error('[ModelService] ❌ STT model load failed:', errMsg);
+        const { Alert } = require('react-native');
+        Alert.alert('Model Load Error', `Path: ${modelLocalPath}\nError: ${errMsg}`);
+        throw loadError;
+      }
+      
       setIsSTTLoading(false);
-    } catch (error) {
-      console.error('STT download/load error:', error);
+    } catch (error: any) {
+      console.error('[ModelService] ❌ STT pipeline error:', error?.message || error);
       setIsSTTDownloading(false);
       setIsSTTLoading(false);
     }
-  }, [isSTTDownloading, isSTTLoading, checkModelDownloaded]);
+  }, [isSTTDownloading, isSTTLoading, checkModelDownloaded, isSDKReady]);
   
   // Download and load TTS
   const downloadAndLoadTTS = useCallback(async () => {
@@ -211,6 +350,8 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
   }, []);
   
   const value: ModelServiceState = {
+    isSDKReady,
+    sdkError,
     isLLMDownloading,
     isSTTDownloading,
     isTTSDownloading,
