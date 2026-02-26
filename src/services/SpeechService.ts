@@ -278,42 +278,29 @@ export class SpeechService {
     }
   }
 
-  /**
-   * Start continuous transcription (every 5 seconds)
-   * Uses NativeAudioModule.getRecordingSnapshot() to get a WAV file
-   * of the accumulated audio, then transcribes it and sends only new text.
-   */
   private startContinuousTranscription(): void {
     this.lastTranscriptionTime = Date.now();
-    let lastTranscribedText = '';
 
+    // Check interval every 1 second, but only transcribe when 3 seconds have passed
     this.transcriptionInterval = setInterval(async () => {
       try {
-        if (!this.isRecording) {
-          return;
-        }
+        if (!this.isRecording) return;
 
         const currentTime = Date.now();
+        const timeSinceLast = currentTime - this.lastTranscriptionTime;
 
-        // Only transcribe if 5 seconds have passed since last transcription
-        if (currentTime - this.lastTranscriptionTime >= 5000) {
-          console.log('[SpeechService] 🔄 Performing continuous transcription...');
+        // Extract and transcribe every ~3 seconds for fast response
+        if (timeSinceLast >= 3000) {
+          console.log(`[SpeechService] 🔄 Processing ${timeSinceLast}ms chunk...`);
 
-          // Check if STT model is ready
-          const modelReady = await checkSTTModelReady();
-          if (!modelReady) {
-            console.warn('[SpeechService] ⚠️ STT model not ready, skipping transcription');
-            return;
-          }
-
-          // Get a snapshot of the current recording as a WAV file
           if (!NativeAudioModule) {
             console.warn('[SpeechService] ⚠️ NativeAudioModule not available');
             return;
           }
 
           try {
-            const snapshot = await NativeAudioModule.getRecordingSnapshot();
+            // Get ONLY the audio recorded since the last transcription
+            const snapshot = await NativeAudioModule.getRecentAudioSnapshot(timeSinceLast);
             const snapshotPath = snapshot.path;
 
             if (!snapshotPath || snapshot.fileSize === 0) {
@@ -322,42 +309,28 @@ export class SpeechService {
             }
 
             console.log(
-              '[SpeechService] 📸 Got recording snapshot:',
+              `[SpeechService] 📸 Got ${timeSinceLast}ms snapshot:`,
               snapshotPath,
               'size:',
               snapshot.fileSize
             );
 
-            // Transcribe the snapshot file
+            // Transcribe the small snapshot file (O(1) time)
             const result = await RunAnywhere.transcribeFile(snapshotPath);
-            const fullText = (result.text || '').trim();
+            const newText = (result.text || '').trim();
 
-            console.log('[SpeechService] 📝 Full transcription length:', fullText.length, 'chars');
-
-            if (fullText && fullText.length > 0) {
-              // Calculate delta: only send the NEW text since last transcription
-              let newText = fullText;
-
-              if (lastTranscribedText && fullText.startsWith(lastTranscribedText)) {
-                // The new transcription includes the old text, extract only the new part
-                newText = fullText.substring(lastTranscribedText.length).trim();
-              } else if (lastTranscribedText && fullText.length > lastTranscribedText.length) {
-                // Texts diverged, send the full new text
-                newText = fullText;
-              }
-
-              if (newText && newText.length > 0 && this.transcriptionCallback) {
-                console.log('[SpeechService] ✅ New transcription text:', newText);
+            if (newText && newText.length > 0) {
+              console.log('[SpeechService] ✅ New chunk transcription:', newText);
+              if (this.transcriptionCallback) {
                 this.transcriptionCallback(newText, currentTime);
-                this.lastTranscriptionTime = currentTime;
-              } else {
-                console.log('[SpeechService] ⚠️ No new text since last transcription');
               }
-
-              lastTranscribedText = fullText;
             } else {
-              console.log('[SpeechService] ⚠️ Empty transcription result');
+              console.log('[SpeechService] ⚠️ Empty transcription result for chunk');
             }
+
+            // Important: Only update time if successful, so we don't drop audio if it failed
+            this.lastTranscriptionTime = currentTime;
+
           } catch (transcribeError) {
             console.log('[SpeechService] ⚠️ Continuous transcription skipped:', transcribeError);
           }
@@ -365,7 +338,7 @@ export class SpeechService {
       } catch (error) {
         console.error('[SpeechService] ❌ Continuous transcription error:', error);
       }
-    }, 5000); // Check every 5 seconds
+    }, 1000); // Check every 1 second
   }
 
   /**

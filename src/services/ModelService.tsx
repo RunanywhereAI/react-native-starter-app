@@ -7,7 +7,7 @@ import { ONNX, ModelArtifactType } from '@runanywhere/onnx';
 // See: /Users/shubhammalhotra/Desktop/test-fresh/runanywhere-sdks/examples/react-native/RunAnywhereAI/App.tsx
 const MODEL_IDS = {
   llm: 'lfm2-350m-q8_0', // LiquidAI LFM2 - fast and efficient
-  stt: 'sherpa-onnx-whisper-tiny.en',
+  stt: 'sherpa-onnx-whisper-base.en',
   tts: 'vits-piper-en_US-lessac-medium',
 } as const;
 
@@ -400,15 +400,15 @@ export const registerDefaultModels = async () => {
     memoryRequirement: 500_000_000,
   });
   
-  // STT Model - Sherpa Whisper Tiny English
-  // Using tar.gz from RunanywhereAI/sherpa-onnx for fast native extraction
+  // STT Model - Sherpa Whisper Base English
+  // Using tar.bz2 from official k2-fsa repo for base model
   await ONNX.addModel({
     id: MODEL_IDS.stt,
-    name: 'Sherpa Whisper Tiny (ONNX)',
-    url: 'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/sherpa-onnx-whisper-tiny.en.tar.gz',
+    name: 'Sherpa Whisper Base (ONNX)',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.en.tar.bz2',
     modality: ModelCategory.SpeechRecognition,
-    artifactType: ModelArtifactType.TarGzArchive,
-    memoryRequirement: 75_000_000,
+    artifactType: ModelArtifactType.TarBz2Archive,
+    memoryRequirement: 150_000_000,
   });
   
   // TTS Model - Piper TTS (US English - Medium quality)
