@@ -29,140 +29,70 @@ export const LiveSessionScreen: React.FC<LiveSessionScreenProps> = ({ navigation
 
   const modeConfig = getModeConfig(mode);
 
-  // Check STT model status on mount
   useEffect(() => {
     const checkModelStatus = async () => {
-      console.log('[LiveSessionScreen] 🔍 Checking STT model status...');
-
-      // Check if debug mode is enabled
       const settings = await LocalStorageService.getSettings();
       const debugMode = settings.debugMode || false;
-
-      if (debugMode) {
-        console.log('[LiveSessionScreen] 🐛 Debug mode enabled, skipping STT model check');
-        setModelReady(true);
-        return;
-      }
-
-      // Check if model is already loaded
-      if (isSTTLoaded) {
-        console.log('[LiveSessionScreen] ✅ STT model already loaded');
-        setModelReady(true);
-        return;
-      }
-
-      // Check if model is currently loading
-      if (isSTTLoading) {
-        console.log('[LiveSessionScreen] ⏳ STT model loading, waiting...');
-        // Model is being loaded, just wait
-        return;
-      }
-
-      // Model not loaded, try to load it
-      console.log('[LiveSessionScreen] 🤖 Starting STT model download and load...');
+      if (debugMode) { setModelReady(true); return; }
+      if (isSTTLoaded) { setModelReady(true); return; }
+      if (isSTTLoading) { return; }
       try {
         await downloadAndLoadSTT();
-
-        // Verify it loaded
         const ready = await checkSTTModelReady();
-        if (ready) {
-          console.log('[LiveSessionScreen] ✅ STT model loaded successfully');
-          setModelReady(true);
-        } else {
-          console.error('[LiveSessionScreen] ❌ STT model failed to load');
-          handleModelLoadFailure();
-        }
-      } catch (err) {
-        console.error('[LiveSessionScreen] ❌ Failed to load STT model:', err);
-        handleModelLoadFailure();
-      }
+        if (ready) { setModelReady(true); }
+        else { handleModelLoadFailure(); }
+      } catch (err) { handleModelLoadFailure(); }
     };
 
     const handleModelLoadFailure = () => {
-      Alert.alert(
-        'Model Loading Failed',
-        'The speech recognition model could not be loaded.\n\nOptions:\n• Enable Debug Mode in Settings to test without audio\n• Check your internet connection\n• Try again',
+      Alert.alert('Model Loading Failed',
+        'The speech recognition model could not be loaded.\n\nOptions:\n• Enable Debug Mode in Settings\n• Check your internet\n• Try again',
         [
-          { text: 'Go to Settings', onPress: () => navigation.navigate('Settings') },
-          {
-            text: 'Try Again',
-            onPress: () => {
-              setModelReady(false);
-              checkModelStatus();
-            },
-          },
+          { text: 'Settings', onPress: () => navigation.navigate('Settings') },
+          { text: 'Try Again', onPress: () => { setModelReady(false); checkModelStatus(); } },
           { text: 'Cancel', onPress: () => navigation.goBack() },
         ]
       );
     };
-
     checkModelStatus();
   }, [navigation, downloadAndLoadSTT, isSTTLoaded, isSTTLoading]);
 
-  // Watch for model loading completion
   useEffect(() => {
-    if (isSTTLoaded && !modelReady) {
-      console.log('[LiveSessionScreen] ✅ STT model loaded (via ModelService)');
-      setModelReady(true);
-    }
+    if (isSTTLoaded && !modelReady) setModelReady(true);
   }, [isSTTLoaded, modelReady]);
 
   useEffect(() => {
-    if (error) {
-      Alert.alert('Error', error, [{ text: 'OK' }]);
-    }
+    if (error) Alert.alert('Error', error, [{ text: 'OK' }]);
   }, [error]);
 
   useEffect(() => {
-    // Auto-start session only when model is ready
     if (!hasStarted && modelReady) {
-      console.log('[LiveSessionScreen] 🚀 Starting session (model ready)');
       setHasStarted(true);
-      startSession(mode).catch((err) => {
-        console.error('[LiveSessionScreen] ❌ Failed to start session:', err);
-        navigation.goBack();
-      });
+      startSession(mode).catch(() => navigation.goBack());
     }
   }, [hasStarted, modelReady, mode, startSession, navigation]);
 
   const handleStop = () => {
-    Alert.alert(
-      'Stop Session',
-      'Are you sure you want to stop this session? Your insights will be saved.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Stop',
-          style: 'destructive',
-          onPress: async () => {
-            const session = await stopSession();
-            if (session) {
-              navigation.navigate('Insights', { sessionId: session.id });
-            } else {
-              navigation.goBack();
-            }
-          },
+    Alert.alert('Stop Session', 'Your insights will be saved.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Stop', style: 'destructive', onPress: async () => {
+          const session = await stopSession();
+          session ? navigation.navigate('Insights', { sessionId: session.id }) : navigation.goBack();
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const handleCancel = () => {
-    Alert.alert(
-      'Cancel Session',
-      'Are you sure you want to cancel? This session will not be saved.',
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Yes, Cancel',
-          style: 'destructive',
-          onPress: async () => {
-            await cancelSession();
-            navigation.goBack();
-          },
+    Alert.alert('Cancel Session', 'This session will not be saved.', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Yes, Cancel', style: 'destructive', onPress: async () => {
+          await cancelSession(); navigation.goBack();
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const formatDuration = (ms: number): string => {
@@ -170,64 +100,29 @@ export const LiveSessionScreen: React.FC<LiveSessionScreenProps> = ({ navigation
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds
-        .toString()
-        .padStart(2, '0')}`;
-    }
+    if (hours > 0) return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // Get top 3 most recent patterns for suggestions
   const recentPatterns = sessionState.detectedPatterns.slice(-3).reverse();
 
-  // Log when patterns change
-  useEffect(() => {
-    console.log('[LiveSessionScreen] 🎯 Detected patterns updated');
-    console.log('[LiveSessionScreen] 📊 Total patterns:', sessionState.detectedPatterns.length);
-    console.log('[LiveSessionScreen] 🔝 Recent patterns (top 3):', recentPatterns.length);
-
-    if (recentPatterns.length > 0) {
-      console.log('[LiveSessionScreen] 💡 Suggestions panel should be visible');
-      recentPatterns.forEach((pattern, index) => {
-        console.log(`[LiveSessionScreen] Pattern ${index + 1}:`, {
-          id: pattern.id,
-          pattern: pattern.pattern,
-          confidence: pattern.confidenceScore,
-          suggestion: pattern.suggestion,
-        });
-      });
-    } else {
-      console.log('[LiveSessionScreen] ⚠️ No patterns to display');
-    }
-  }, [sessionState.detectedPatterns.length]);
-
-  // Log transcript updates
-  useEffect(() => {
-    console.log('[LiveSessionScreen] 📝 Transcript updated');
-    console.log('[LiveSessionScreen] 📊 Total chunks:', sessionState.transcript.length);
-    if (sessionState.transcript.length > 0) {
-      const lastChunk = sessionState.transcript[sessionState.transcript.length - 1];
-      console.log('[LiveSessionScreen] 📝 Last chunk:', lastChunk.text);
-    }
-  }, [sessionState.transcript.length]);
-
-  // Show loading screen while model loads
   if (!modelReady) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={AppColors.primaryDark} />
+        <StatusBar barStyle="dark-content" backgroundColor={AppColors.primaryLight} />
         <View style={styles.loadingContainer}>
+          <View style={styles.loadingIconCircle}>
+            <Text style={styles.loadingIcon}>{isSTTLoading ? '📥' : '🤖'}</Text>
+          </View>
           <Text style={styles.loadingTitle}>
-            {isSTTLoading ? '📥 Downloading Model...' : '🤖 Loading AI Model...'}
+            {isSTTLoading ? 'Downloading Model...' : 'Loading AI Model...'}
           </Text>
           <Text style={styles.loadingText}>
             {isSTTLoading ? 'First-time setup (~75MB)' : 'Preparing speech recognition'}
           </Text>
-          <Text style={styles.loadingSubtext}>
-            {isSTTLoading ? 'This only happens once' : 'Please wait...'}
-          </Text>
+          <View style={styles.loadingBarBg}>
+            <LinearGradient colors={['#7B61FF', '#9B82FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.loadingBar} />
+          </View>
         </View>
       </View>
     );
@@ -235,14 +130,14 @@ export const LiveSessionScreen: React.FC<LiveSessionScreenProps> = ({ navigation
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={AppColors.primaryDark} />
+      <StatusBar barStyle="dark-content" backgroundColor={AppColors.primaryLight} />
 
       {/* Top Bar */}
-      <LinearGradient colors={[AppColors.primaryDark, AppColors.primaryMid]} style={styles.topBar}>
+      <View style={styles.topBar}>
         <View style={styles.topBarContent}>
           <View style={styles.topBarLeft}>
             <View style={styles.modeTag}>
-              <Text style={styles.modeIcon}>{modeConfig.icon}</Text>
+              <Text style={styles.modeIconText}>{modeConfig.icon}</Text>
               <Text style={styles.modeText}>{modeConfig.displayName}</Text>
             </View>
             <View style={styles.recordingIndicator}>
@@ -250,16 +145,11 @@ export const LiveSessionScreen: React.FC<LiveSessionScreenProps> = ({ navigation
               <Text style={styles.recordingText}>{formatDuration(sessionState.duration)}</Text>
             </View>
           </View>
-
           <View style={styles.topBarRight}>
-            <CognitiveMeter
-              focusScore={sessionState.currentFocusScore}
-              size={60}
-              showLabel={false}
-            />
+            <CognitiveMeter focusScore={sessionState.currentFocusScore} size={60} showLabel={false} />
           </View>
         </View>
-      </LinearGradient>
+      </View>
 
       {/* Transcript */}
       <View style={styles.transcriptContainer}>
@@ -281,7 +171,6 @@ export const LiveSessionScreen: React.FC<LiveSessionScreenProps> = ({ navigation
         <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
-
         <TouchableOpacity style={styles.stopButton} onPress={handleStop} activeOpacity={0.8}>
           <LinearGradient colors={[AppColors.error, '#C53030']} style={styles.stopButtonGradient}>
             <Text style={styles.stopButtonIcon}>⏹️</Text>
@@ -290,17 +179,10 @@ export const LiveSessionScreen: React.FC<LiveSessionScreenProps> = ({ navigation
         </TouchableOpacity>
       </View>
 
-      {/* Audio Level Visualizer (optional) */}
       {sessionState.audioLevel > 0 && (
         <View style={styles.audioVisualizer}>
-          <View
-            style={[
-              styles.audioBar,
-              {
-                width: `${Math.min(sessionState.audioLevel * 100, 100)}%`,
-              },
-            ]}
-          />
+          <LinearGradient colors={['#7B61FF', '#9B82FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={[styles.audioBar, { width: `${Math.min(sessionState.audioLevel * 100, 100)}%` }]} />
         </View>
       )}
     </View>
@@ -308,161 +190,38 @@ export const LiveSessionScreen: React.FC<LiveSessionScreenProps> = ({ navigation
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: AppColors.primaryDark,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  loadingTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: AppColors.textPrimary,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: AppColors.textSecondary,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  loadingSubtext: {
-    fontSize: 13,
-    color: AppColors.textMuted,
-    textAlign: 'center',
-  },
-  topBar: {
-    paddingTop: 50,
-    paddingBottom: 16,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: AppColors.textMuted + '20',
-  },
-  topBarContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  topBarLeft: {
-    flex: 1,
-  },
-  modeTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: AppColors.accentCyan + '20',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-    marginBottom: 12,
-  },
-  modeIcon: {
-    fontSize: 16,
-    marginRight: 6,
-  },
-  modeText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: AppColors.accentCyan,
-  },
-  recordingIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  recordingDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: AppColors.error,
-    marginRight: 8,
-  },
-  recordingText: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: AppColors.textPrimary,
-    fontVariant: ['tabular-nums'],
-  },
-  topBarRight: {
-    marginLeft: 16,
-  },
-  transcriptContainer: {
-    flex: 1,
-    backgroundColor: AppColors.primaryMid,
-  },
-  suggestionsPanel: {
-    backgroundColor: AppColors.primaryDark,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: AppColors.textMuted + '20',
-    maxHeight: 300,
-  },
-  suggestionsTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: AppColors.textPrimary,
-    marginHorizontal: 16,
-    marginBottom: 12,
-  },
-  bottomActions: {
-    flexDirection: 'row',
-    padding: 16,
-    backgroundColor: AppColors.primaryDark,
-    borderTopWidth: 1,
-    borderTopColor: AppColors.textMuted + '20',
-    gap: 12,
-  },
-  cancelButton: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: AppColors.surfaceCard,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: AppColors.textSecondary,
-  },
-  stopButton: {
-    flex: 2,
-    borderRadius: 12,
-    overflow: 'hidden',
-    elevation: 4,
-    shadowColor: AppColors.error,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  stopButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  stopButtonIcon: {
-    fontSize: 20,
-    marginRight: 8,
-  },
-  stopButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: AppColors.textPrimary,
-  },
-  audioVisualizer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: AppColors.surfaceCard,
-  },
-  audioBar: {
-    height: '100%',
-    backgroundColor: AppColors.accentCyan,
-  },
+  container: { flex: 1, backgroundColor: AppColors.primaryLight },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
+  loadingIconCircle: { width: 80, height: 80, borderRadius: 28, backgroundColor: '#EDE9FE', justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
+  loadingIcon: { fontSize: 36 },
+  loadingTitle: { fontSize: 22, fontWeight: '700', color: AppColors.textPrimary, marginBottom: 8, textAlign: 'center' },
+  loadingText: { fontSize: 15, color: AppColors.textSecondary, marginBottom: 32, textAlign: 'center' },
+  loadingBarBg: { width: '60%', height: 6, borderRadius: 3, backgroundColor: '#EDE9FE', overflow: 'hidden' },
+  loadingBar: { width: '45%', height: '100%', borderRadius: 3 },
+
+  topBar: { paddingTop: 50, paddingBottom: 16, paddingHorizontal: 20, backgroundColor: '#FFFFFF', borderBottomLeftRadius: 24, borderBottomRightRadius: 24, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 },
+  topBarContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  topBarLeft: { flex: 1 },
+  modeTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#EDE9FE', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 10, alignSelf: 'flex-start', marginBottom: 12 },
+  modeIconText: { fontSize: 16, marginRight: 6 },
+  modeText: { fontSize: 13, fontWeight: '600', color: AppColors.accentPrimary },
+  recordingIndicator: { flexDirection: 'row', alignItems: 'center' },
+  recordingDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: AppColors.error, marginRight: 8 },
+  recordingText: { fontSize: 24, fontWeight: '700', color: AppColors.textPrimary, fontVariant: ['tabular-nums'] },
+  topBarRight: { marginLeft: 16 },
+
+  transcriptContainer: { flex: 1, backgroundColor: AppColors.primaryLight },
+  suggestionsPanel: { backgroundColor: '#FFFFFF', paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#F3F4F6', maxHeight: 300 },
+  suggestionsTitle: { fontSize: 16, fontWeight: '700', color: AppColors.textPrimary, marginHorizontal: 16, marginBottom: 12 },
+
+  bottomActions: { flexDirection: 'row', padding: 16, paddingBottom: 28, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#F3F4F6', gap: 12 },
+  cancelButton: { flex: 1, padding: 16, backgroundColor: '#F3F4F6', borderRadius: 16, alignItems: 'center' },
+  cancelButtonText: { fontSize: 16, fontWeight: '600', color: AppColors.textSecondary },
+  stopButton: { flex: 2, borderRadius: 16, overflow: 'hidden', elevation: 4, shadowColor: AppColors.error, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 6 },
+  stopButtonGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  stopButtonIcon: { fontSize: 20, marginRight: 8 },
+  stopButtonText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+
+  audioVisualizer: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, backgroundColor: '#EDE9FE' },
+  audioBar: { height: '100%', borderRadius: 2 },
 });

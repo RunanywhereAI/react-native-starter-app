@@ -6,6 +6,7 @@
  * the RN 0.83 CLI. Pods must be installed manually: cd ios && pod install && cd ..
  */
 module.exports = {
+  assets: ['./assets/fonts/'],
   project: {
     ios: {
       automaticPodsInstallation: false,
