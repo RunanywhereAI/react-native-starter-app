@@ -168,3 +168,15 @@ export interface AnalysisResult {
   suggestions: string[];
   focusScore: number;
 }
+
+/**
+ * Counter strategy result from the CounterStrategyEngine
+ */
+export interface CounterStrategy {
+  tactic: NegotiationPattern;
+  tacticDisplayName: string;
+  confidence: number; // 0-100
+  suggestions: string[];
+  explanation: string;
+  timestamp: number;
+}
