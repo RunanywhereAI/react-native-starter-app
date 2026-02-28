@@ -1,16 +1,19 @@
 {
-  "name": "runanywhere-starter-app",
+  "name": "latent",
   "version": "1.0.0",
-  "description": "A comprehensive starter app demonstrating RunAnywhere SDK capabilities - on-device AI for React Native",
+  "description": "Latent - Offline Meeting Intelligence. Privacy-first negotiation assistant powered by on-device AI.",
   "main": "index.js",
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "start": "react-native start",
     "test": "jest",
-    "lint": "eslint . --ext .js,.jsx,.ts,.tsx"
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "check-models": "bash scripts/check-models.sh",
+    "rebuild-android": "cd android && ./gradlew clean && cd .. && react-native run-android"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-navigation/native": "^7.1.24",
     "@react-navigation/stack": "^7.6.16",
     "@runanywhere/core": "^0.18.1",
@@ -24,7 +27,8 @@
     "react-native-live-audio-stream": "^1.1.1",
     "react-native-nitro-modules": "^0.31.10",
     "react-native-safe-area-context": "~5.6.2",
-    "react-native-sound": "^0.13.0"
+    "react-native-sound": "^0.13.0",
+    "react-native-svg": "^15.15.3"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

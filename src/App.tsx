@@ -1,21 +1,13 @@
 import 'react-native-gesture-handler'; // Must be at the top!
-import React, { useEffect } from 'react';
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator, TransitionPresets } from '@react-navigation/stack';
 import { StatusBar } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 // Note: react-native-screens is shimmed in index.js for iOS New Architecture compatibility
-import { RunAnywhere, SDKEnvironment } from '@runanywhere/core';
-import { ModelServiceProvider, registerDefaultModels } from './services/ModelService';
+import { ModelServiceProvider } from './services/ModelService';
 import { AppColors } from './theme';
-import {
-  HomeScreen,
-  ChatScreen,
-  ToolCallingScreen,
-  SpeechToTextScreen,
-  TextToSpeechScreen,
-  VoicePipelineScreen,
-} from './screens';
+import { HomeScreen, LiveSessionScreen, InsightsScreen, SettingsScreen, DisclaimerScreen, OutcomeReplayScreen, PreSessionFormScreen, PreSessionStrategyScreen } from './screens';
 import { RootStackParamList } from './navigation/types';
 
 // Using JS-based stack navigator instead of native-stack
@@ -23,87 +15,65 @@ import { RootStackParamList } from './navigation/types';
 const Stack = createStackNavigator<RootStackParamList>();
 
 const App: React.FC = () => {
-  useEffect(() => {
-    // Initialize SDK
-    const initializeSDK = async () => {
-      try {
-        // Initialize RunAnywhere SDK (Development mode doesn't require API key)
-        await RunAnywhere.initialize({
-          environment: SDKEnvironment.Development,
-        });
-
-        // Register backends (per docs: https://docs.runanywhere.ai/react-native/quick-start)
-        const { LlamaCPP } = await import('@runanywhere/llamacpp');
-        const { ONNX } = await import('@runanywhere/onnx');
-        
-        LlamaCPP.register();
-        ONNX.register();
-
-        // Register default models
-        await registerDefaultModels();
-
-        console.log('RunAnywhere SDK initialized successfully');
-      } catch (error) {
-        console.error('Failed to initialize RunAnywhere SDK:', error);
-      }
-    };
-
-    initializeSDK();
-  }, []);
+  // SDK initialization is now handled inside ModelServiceProvider
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ModelServiceProvider>
-        <StatusBar barStyle="light-content" backgroundColor={AppColors.primaryDark} />
+        <StatusBar barStyle="dark-content" backgroundColor="#F5F0FF" />
         <NavigationContainer>
           <Stack.Navigator
             screenOptions={{
               headerStyle: {
-                backgroundColor: AppColors.primaryDark,
+                backgroundColor: '#F5F0FF',
                 elevation: 0,
                 shadowOpacity: 0,
+                borderBottomWidth: 0,
               },
-              headerTintColor: AppColors.textPrimary,
+              headerTintColor: '#1A1A2E',
               headerTitleStyle: {
                 fontWeight: '700',
                 fontSize: 18,
+                color: '#1A1A2E',
               },
               cardStyle: {
-                backgroundColor: AppColors.primaryDark,
+                backgroundColor: '#F5F0FF',
               },
               // iOS-like animations
               ...TransitionPresets.SlideFromRightIOS,
             }}
           >
+            <Stack.Screen name="Disclaimer" component={DisclaimerScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
             <Stack.Screen
-              name="Home"
-              component={HomeScreen}
-              options={{ headerShown: false }}
+              name="PreSessionForm"
+              component={PreSessionFormScreen}
+              options={{ title: 'Strategic Preparation', headerStyle: { backgroundColor: '#0A0E1A' }, headerTintColor: '#FFFFFF' }}
             />
             <Stack.Screen
-              name="Chat"
-              component={ChatScreen}
-              options={{ title: 'Chat' }}
+              name="PreSessionStrategy"
+              component={PreSessionStrategyScreen}
+              options={{ title: 'Offline Analysis', headerStyle: { backgroundColor: '#0A0E1A' }, headerTintColor: '#FFFFFF' }}
             />
             <Stack.Screen
-              name="ToolCalling"
-              component={ToolCallingScreen}
-              options={{ title: 'Tool Calling' }}
+              name="LiveSession"
+              component={LiveSessionScreen}
+              options={{ title: 'Live Tactical Mode' }}
             />
             <Stack.Screen
-              name="SpeechToText"
-              component={SpeechToTextScreen}
-              options={{ title: 'Speech to Text' }}
+              name="OutcomeReplay"
+              component={OutcomeReplayScreen}
+              options={{ title: 'Strategic Outcome Replay™' }}
             />
             <Stack.Screen
-              name="TextToSpeech"
-              component={TextToSpeechScreen}
-              options={{ title: 'Text to Speech' }}
+              name="Insights"
+              component={InsightsScreen}
+              options={{ title: 'Session Insights' }}
             />
             <Stack.Screen
-              name="VoicePipeline"
-              component={VoicePipelineScreen}
-              options={{ title: 'Voice Pipeline' }}
+              name="Settings"
+              component={SettingsScreen}
+              options={{ title: 'Settings' }}
             />
           </Stack.Navigator>
         </NavigationContainer>

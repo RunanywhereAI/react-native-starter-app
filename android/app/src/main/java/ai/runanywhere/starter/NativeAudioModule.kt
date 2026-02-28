@@ -7,6 +7,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.util.Base64
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import com.facebook.react.bridge.*
 import java.io.ByteArrayOutputStream
@@ -26,11 +27,13 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
     private var recordingThread: Thread? = null
     private var recordedData: ByteArrayOutputStream? = null
     private var recordingFilePath: String? = null
+    private var snapshotCounter = 0
 
     private var audioTrack: AudioTrack? = null
     private var isPlaying = false
 
     companion object {
+        const val TAG = "NativeAudioModule"
         const val SAMPLE_RATE = 16000
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
@@ -70,7 +73,14 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
             }
 
             recordedData = ByteArrayOutputStream()
+            snapshotCounter = 0
             isRecording = true
+
+            // Create the recording WAV file path upfront
+            val tempFile = File(reactApplicationContext.cacheDir, "recording_live.wav")
+            recordingFilePath = tempFile.absolutePath
+            Log.d(TAG, "Recording will be saved to: $recordingFilePath")
+
             audioRecord?.startRecording()
 
             // Start recording thread
@@ -88,11 +98,128 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
 
             val result = Arguments.createMap().apply {
                 putString("status", "recording")
+                putString("path", recordingFilePath)
             }
+            Log.d(TAG, "Recording started, path: $recordingFilePath")
             promise.resolve(result)
 
         } catch (e: Exception) {
             promise.reject("RECORDING_ERROR", "Failed to start recording: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Create a snapshot WAV file from the current recorded audio data.
+     * This allows mid-recording transcription without stopping the recording.
+     * Each call writes the accumulated audio so far to a new temp file.
+     */
+    @ReactMethod
+    fun getRecordingSnapshot(promise: Promise) {
+        if (!isRecording || recordedData == null) {
+            promise.reject("NOT_RECORDING", "No recording in progress")
+            return
+        }
+
+        try {
+            val pcmData = synchronized(recordedData!!) {
+                recordedData?.toByteArray() ?: ByteArray(0)
+            }
+
+            if (pcmData.isEmpty()) {
+                Log.d(TAG, "Snapshot: No audio data yet")
+                val result = Arguments.createMap().apply {
+                    putString("path", "")
+                    putInt("fileSize", 0)
+                }
+                promise.resolve(result)
+                return
+            }
+
+            // Create WAV from accumulated PCM data
+            val wavData = createWavFromPcm(pcmData, SAMPLE_RATE, 1, 16)
+
+            // Write to a snapshot file (use counter to avoid file locking issues)
+            snapshotCounter++
+            val snapshotFile = File(reactApplicationContext.cacheDir, "recording_snapshot_${snapshotCounter % 2}.wav")
+            FileOutputStream(snapshotFile).use { it.write(wavData) }
+
+            Log.d(TAG, "Snapshot created: ${snapshotFile.absolutePath}, size: ${wavData.size} bytes, PCM: ${pcmData.size} bytes")
+
+            val result = Arguments.createMap().apply {
+                putString("path", snapshotFile.absolutePath)
+                putInt("fileSize", wavData.size)
+                putDouble("durationMs", (pcmData.size.toDouble() / (SAMPLE_RATE * 2)) * 1000)
+            }
+            promise.resolve(result)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create snapshot: ${e.message}", e)
+            promise.reject("SNAPSHOT_ERROR", "Failed to create recording snapshot: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Create a snapshot WAV file containing ONLY the last N milliseconds of audio.
+     * This enables fast, chunk-based transcription instead of processing the
+     * endlessly growing full audio buffer.
+     */
+    @ReactMethod
+    fun getRecentAudioSnapshot(durationMs: Double, promise: Promise) {
+        if (!isRecording || recordedData == null) {
+            promise.reject("NOT_RECORDING", "No recording in progress")
+            return
+        }
+
+        try {
+            val pcmData = synchronized(recordedData!!) {
+                recordedData?.toByteArray() ?: ByteArray(0)
+            }
+
+            if (pcmData.isEmpty()) {
+                Log.d(TAG, "Recent Snapshot: No audio data yet")
+                val result = Arguments.createMap().apply {
+                    putString("path", "")
+                    putInt("fileSize", 0)
+                }
+                promise.resolve(result)
+                return
+            }
+
+            // Calculate bytes needed for the requested duration.
+            // 1 sec = SAMPLE_RATE samples = SAMPLE_RATE * 2 bytes (16-bit Mono)
+            val bytesRequired = ((durationMs / 1000.0) * SAMPLE_RATE * 2).toInt()
+            
+            // Ensure we use an even number of bytes to avoid splitting a 16-bit sample
+            val safeBytesRequired = bytesRequired - (bytesRequired % 2)
+
+            // Extract only the recent chunk from the end of the PCM data
+            val extractSize = minOf(safeBytesRequired, pcmData.size)
+            val startIndex = pcmData.size - extractSize
+            
+            // Create a new ByteArray containing only the recent data
+            val recentPcmData = pcmData.copyOfRange(startIndex, pcmData.size)
+
+            Log.d(TAG, "Recent Snapshot: Extracting last ${durationMs}ms -> ${extractSize} bytes out of ${pcmData.size} total")
+
+            // Create WAV from the recent PCM data only
+            val wavData = createWavFromPcm(recentPcmData, SAMPLE_RATE, 1, 16)
+
+            // Write to a snapshot file
+            snapshotCounter++
+            // Use _recent prefix to keep separate from full snapshots
+            val snapshotFile = File(reactApplicationContext.cacheDir, "recording_snapshot_recent_${snapshotCounter % 2}.wav")
+            FileOutputStream(snapshotFile).use { it.write(wavData) }
+
+            val result = Arguments.createMap().apply {
+                putString("path", snapshotFile.absolutePath)
+                putInt("fileSize", wavData.size)
+                putDouble("durationMs", (recentPcmData.size.toDouble() / (SAMPLE_RATE * 2)) * 1000)
+            }
+            promise.resolve(result)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create recent snapshot: ${e.message}", e)
+            promise.reject("SNAPSHOT_ERROR", "Failed to create recent recording snapshot: ${e.message}", e)
         }
     }
 
@@ -120,10 +247,15 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
             val wavData = createWavFromPcm(pcmData, SAMPLE_RATE, 1, 16)
             val base64Audio = Base64.encodeToString(wavData, Base64.NO_WRAP)
 
-            // Save to temp file
+            // Save to final file
             val tempFile = File(reactApplicationContext.cacheDir, "recording_${System.currentTimeMillis()}.wav")
             FileOutputStream(tempFile).use { it.write(wavData) }
             recordingFilePath = tempFile.absolutePath
+
+            // Clean up snapshot files
+            cleanupSnapshots()
+
+            Log.d(TAG, "Recording stopped, saved to: $recordingFilePath, size: ${wavData.size} bytes")
 
             val result = Arguments.createMap().apply {
                 putString("status", "stopped")
@@ -150,6 +282,9 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
             recordedData = null
             recordingFilePath = null
 
+            // Clean up snapshot files
+            cleanupSnapshots()
+
             promise.resolve(true)
         } catch (e: Exception) {
             // Ignore errors during cancel
@@ -157,10 +292,30 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
         }
     }
 
+    private fun cleanupSnapshots() {
+        try {
+            for (i in 0..1) {
+                val snapshotFile = File(reactApplicationContext.cacheDir, "recording_snapshot_$i.wav")
+                if (snapshotFile.exists()) {
+                    snapshotFile.delete()
+                }
+            }
+            val liveFile = File(reactApplicationContext.cacheDir, "recording_live.wav")
+            if (liveFile.exists()) {
+                liveFile.delete()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to cleanup snapshots: ${e.message}")
+        }
+    }
+
     @ReactMethod
     fun getAudioLevel(promise: Promise) {
         if (!isRecording || audioRecord == null) {
-            promise.resolve(0.0)
+            val result = Arguments.createMap().apply {
+                putDouble("level", 0.0)
+            }
+            promise.resolve(result)
             return
         }
 
@@ -181,9 +336,15 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
                 }
                 kotlin.math.sqrt(sum / (lastChunk.size / 2)) / 32768.0
             }
-            promise.resolve(level)
+            val result = Arguments.createMap().apply {
+                putDouble("level", level)
+            }
+            promise.resolve(result)
         } catch (e: Exception) {
-            promise.resolve(0.0)
+            val result = Arguments.createMap().apply {
+                putDouble("level", 0.0)
+            }
+            promise.resolve(result)
         }
     }
 
