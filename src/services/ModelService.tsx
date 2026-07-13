@@ -13,6 +13,7 @@ import {
 // See: runanywhere-sdks/examples/react-native/RunAnywhereAI/src/services/ModelCatalogBootstrap.ts
 const MODEL_IDS = {
   llm: 'lfm2-350m-q8_0', // LiquidAI LFM2 - fast and efficient
+  vlm: 'smolvlm-500m-instruct-q8_0', // SmolVLM - ultra-light vision model
   stt: 'sherpa-onnx-whisper-tiny.en',
   tts: 'vits-piper-en_US-lessac-medium',
 } as const;
@@ -20,20 +21,24 @@ const MODEL_IDS = {
 interface ModelServiceState {
   // Download state
   isLLMDownloading: boolean;
+  isVLMDownloading: boolean;
   isSTTDownloading: boolean;
   isTTSDownloading: boolean;
 
   llmDownloadProgress: number;
+  vlmDownloadProgress: number;
   sttDownloadProgress: number;
   ttsDownloadProgress: number;
 
   // Load state
   isLLMLoading: boolean;
+  isVLMLoading: boolean;
   isSTTLoading: boolean;
   isTTSLoading: boolean;
 
   // Loaded state
   isLLMLoaded: boolean;
+  isVLMLoaded: boolean;
   isSTTLoaded: boolean;
   isTTSLoaded: boolean;
 
@@ -41,6 +46,7 @@ interface ModelServiceState {
 
   // Actions
   downloadAndLoadLLM: () => Promise<void>;
+  downloadAndLoadVLM: () => Promise<void>;
   downloadAndLoadSTT: () => Promise<void>;
   downloadAndLoadTTS: () => Promise<void>;
   downloadAndLoadAllModels: () => Promise<void>;
@@ -64,20 +70,24 @@ interface ModelServiceProviderProps {
 export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ children }) => {
   // Download state
   const [isLLMDownloading, setIsLLMDownloading] = useState(false);
+  const [isVLMDownloading, setIsVLMDownloading] = useState(false);
   const [isSTTDownloading, setIsSTTDownloading] = useState(false);
   const [isTTSDownloading, setIsTTSDownloading] = useState(false);
 
   const [llmDownloadProgress, setLLMDownloadProgress] = useState(0);
+  const [vlmDownloadProgress, setVLMDownloadProgress] = useState(0);
   const [sttDownloadProgress, setSTTDownloadProgress] = useState(0);
   const [ttsDownloadProgress, setTTSDownloadProgress] = useState(0);
 
   // Load state
   const [isLLMLoading, setIsLLMLoading] = useState(false);
+  const [isVLMLoading, setIsVLMLoading] = useState(false);
   const [isSTTLoading, setIsSTTLoading] = useState(false);
   const [isTTSLoading, setIsTTSLoading] = useState(false);
 
   // Loaded state
   const [isLLMLoaded, setIsLLMLoaded] = useState(false);
+  const [isVLMLoaded, setIsVLMLoaded] = useState(false);
   const [isSTTLoaded, setIsSTTLoaded] = useState(false);
   const [isTTSLoaded, setIsTTSLoaded] = useState(false);
 
@@ -133,6 +143,44 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
       setIsLLMLoading(false);
     }
   }, [isLLMDownloading, isLLMLoading, getRegisteredModel]);
+
+  // Download and load VLM (vision-language model, MULTIMODAL category)
+  const downloadAndLoadVLM = useCallback(async () => {
+    if (isVLMDownloading || isVLMLoading) return;
+
+    try {
+      const model = await getRegisteredModel(MODEL_IDS.vlm);
+      if (!model) {
+        console.error('VLM model not registered:', MODEL_IDS.vlm);
+        return;
+      }
+
+      if (!model.isDownloaded) {
+        setIsVLMDownloading(true);
+        setVLMDownloadProgress(0);
+
+        await RunAnywhere.downloadModel(model, (progress) => {
+          setVLMDownloadProgress(progress.overallProgress * 100);
+        });
+
+        setIsVLMDownloading(false);
+      }
+
+      setIsVLMLoading(true);
+      const result = await RunAnywhere.loadModel(
+        ModelLoadRequest.fromPartial({
+          modelId: MODEL_IDS.vlm,
+          category: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
+        })
+      );
+      setIsVLMLoaded(result.success);
+      setIsVLMLoading(false);
+    } catch (error) {
+      console.error('VLM download/load error:', error);
+      setIsVLMDownloading(false);
+      setIsVLMLoading(false);
+    }
+  }, [isVLMDownloading, isVLMLoading, getRegisteredModel]);
 
   // Download and load STT
   const downloadAndLoadSTT = useCallback(async () => {
@@ -230,6 +278,12 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
       );
       await RunAnywhere.unloadModel(
         ModelUnloadRequest.fromPartial({
+          category: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
+          unloadAll: true,
+        })
+      );
+      await RunAnywhere.unloadModel(
+        ModelUnloadRequest.fromPartial({
           category: ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION,
           unloadAll: true,
         })
@@ -241,6 +295,7 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
         })
       );
       setIsLLMLoaded(false);
+      setIsVLMLoaded(false);
       setIsSTTLoaded(false);
       setIsTTSLoaded(false);
     } catch (error) {
@@ -250,19 +305,24 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
 
   const value: ModelServiceState = {
     isLLMDownloading,
+    isVLMDownloading,
     isSTTDownloading,
     isTTSDownloading,
     llmDownloadProgress,
+    vlmDownloadProgress,
     sttDownloadProgress,
     ttsDownloadProgress,
     isLLMLoading,
+    isVLMLoading,
     isSTTLoading,
     isTTSLoading,
     isLLMLoaded,
+    isVLMLoaded,
     isSTTLoaded,
     isTTSLoaded,
     isVoiceAgentReady,
     downloadAndLoadLLM,
+    downloadAndLoadVLM,
     downloadAndLoadSTT,
     downloadAndLoadTTS,
     downloadAndLoadAllModels,
@@ -300,6 +360,19 @@ export const registerDefaultModels = async () => {
     memoryRequirement: 500_000_000,
   });
 
+  // VLM Model - SmolVLM 500M (ultra-lightweight vision-language model, ~600MB)
+  // Single tar.gz bundle (weights + mmproj) served by the RunAnywhere release
+  // mirror. Runs on the LlamaCPP backend under the MULTIMODAL category.
+  await RunAnywhere.registerModel({
+    id: MODEL_IDS.vlm,
+    name: 'SmolVLM 500M Instruct',
+    url: 'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-vlm-models-v1/smolvlm-500m-instruct-q8_0.tar.gz',
+    framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
+    modality: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
+    artifactType: ModelArtifactType.MODEL_ARTIFACT_TYPE_TAR_GZ_ARCHIVE,
+    memoryRequirement: 600_000_000,
+  });
+
   // STT Model - Sherpa Whisper Tiny English
   // tar.gz served by the Sherpa engine plugin (ONNX.register() installs it).
   await RunAnywhere.registerModel({
@@ -321,5 +394,16 @@ export const registerDefaultModels = async () => {
     modality: ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS,
     artifactType: ModelArtifactType.MODEL_ARTIFACT_TYPE_TAR_GZ_ARCHIVE,
     memoryRequirement: 65_000_000,
+  });
+
+  // VAD Model - Silero VAD (voice activity detection for the voice pipeline).
+  // Small .onnx served directly from the upstream repo; runs on the ONNX backend.
+  await RunAnywhere.registerModel({
+    id: 'silero-vad',
+    name: 'Silero VAD',
+    url: 'https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx',
+    framework: InferenceFramework.INFERENCE_FRAMEWORK_ONNX,
+    modality: ModelCategory.MODEL_CATEGORY_VOICE_ACTIVITY_DETECTION,
+    memoryRequirement: 2_327_524,
   });
 };

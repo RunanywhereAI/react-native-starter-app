@@ -1,5 +1,6 @@
 export * from './HomeScreen';
 export * from './ChatScreen';
+export * from './VisionScreen';
 export * from './ToolCallingScreen';
 export * from './SpeechToTextScreen';
 export * from './TextToSpeechScreen';

@@ -71,11 +71,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
                 onPress={() => navigation.navigate('Chat')}
               />
               <FeatureCard
-                title="Tools"
-                subtitle="Tool Calling"
-                icon="tools"
+                title="Vision"
+                subtitle="Image Understanding"
+                icon="vision"
                 gradientColors={[AppColors.accentOrange, '#E67E22']}
-                onPress={() => navigation.navigate('ToolCalling')}
+                onPress={() => navigation.navigate('Vision')}
               />
             </View>
             <View style={styles.row}>
@@ -96,13 +96,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             </View>
             <View style={styles.row}>
               <FeatureCard
+                title="Tools"
+                subtitle="Tool Calling"
+                icon="tools"
+                gradientColors={[AppColors.accentGreen, '#0EA5E9']}
+                onPress={() => navigation.navigate('ToolCalling')}
+              />
+              <FeatureCard
                 title="Pipeline"
                 subtitle="Voice Agent"
                 icon="pipeline"
                 gradientColors={[AppColors.accentGreen, '#059669']}
                 onPress={() => navigation.navigate('VoicePipeline')}
               />
-              <View style={{ flex: 1, margin: 8 }} />
             </View>
           </View>
 
@@ -112,7 +118,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               <Text style={styles.infoIcon}>🤖</Text>
               <Text style={styles.infoLabel}>LLM</Text>
               <View style={{ flex: 1 }} />
-              <Text style={styles.infoValue}>SmolLM2 360M</Text>
+              <Text style={styles.infoValue}>LFM2 350M</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoIcon}>👁</Text>
+              <Text style={styles.infoLabel}>VLM</Text>
+              <View style={{ flex: 1 }} />
+              <Text style={styles.infoValue}>SmolVLM 500M</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoIcon}>🎤</Text>
@@ -125,6 +137,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               <Text style={styles.infoLabel}>TTS</Text>
               <View style={{ flex: 1 }} />
               <Text style={styles.infoValue}>Piper TTS</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoIcon}>🎚</Text>
+              <Text style={styles.infoLabel}>VAD</Text>
+              <View style={{ flex: 1 }} />
+              <Text style={styles.infoValue}>Silero VAD</Text>
             </View>
           </View>
         </ScrollView>

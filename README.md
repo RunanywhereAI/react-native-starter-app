@@ -8,7 +8,7 @@ A comprehensive starter app demonstrating the capabilities of the [RunAnywhere S
 
 ## ✨ Features
 
-This starter app showcases four main capabilities of the RunAnywhere SDK:
+This starter app showcases the core capabilities of the RunAnywhere SDK:
 
 ### 💬 Chat (LLM Text Generation)
 - Streaming text generation with token-by-token output
@@ -16,6 +16,16 @@ This starter app showcases four main capabilities of the RunAnywhere SDK:
 - Cancel generation mid-stream
 - Suggested prompts for quick testing
 - Beautiful chat UI with message bubbles
+
+### 👁 Vision (VLM Image Understanding)
+- On-device image description with a vision-language model (SmolVLM)
+- Streaming, token-by-token descriptions via `RunAnywhere.processImageStream`
+- Sample images plus custom image URL / local path input
+- Editable prompt and cancel mid-generation
+
+### 🛠 Tool Calling
+- LLM-driven function calling from natural language
+- Structured tool definitions and execution
 
 ### 🎤 Speech-to-Text (STT)
 - Real-time audio recording
@@ -229,11 +239,14 @@ src/
 
 The app comes preconfigured with these models:
 
-| Model | Purpose | Size | Source |
-|-------|---------|------|--------|
-| SmolLM2 360M Q8_0 | Text generation | ~400MB | HuggingFace |
-| Sherpa ONNX Whisper Tiny EN | Speech recognition | ~80MB | RunAnywhere |
-| Piper TTS (US English) | Voice synthesis | ~100MB | RunAnywhere |
+| Model | Modality | Size | Source |
+|-------|----------|------|--------|
+| LiquidAI LFM2 350M Q8_0 | LLM (text generation) | ~400MB | HuggingFace |
+| SmolLM2 360M Q8_0 | LLM (alternative) | ~500MB | HuggingFace |
+| SmolVLM 500M Instruct | VLM (image understanding) | ~600MB | RunAnywhere |
+| Sherpa ONNX Whisper Tiny EN | STT (speech recognition) | ~80MB | RunAnywhere |
+| Piper TTS (US English) | TTS (voice synthesis) | ~100MB | RunAnywhere |
+| Silero VAD | VAD (voice activity detection) | ~2MB | Silero |
 
 ## 🎨 Customization
 

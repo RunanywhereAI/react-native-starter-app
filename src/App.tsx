@@ -11,6 +11,7 @@ import { AppColors } from './theme';
 import {
   HomeScreen,
   ChatScreen,
+  VisionScreen,
   ToolCallingScreen,
   SpeechToTextScreen,
   TextToSpeechScreen,
@@ -111,6 +112,11 @@ const App: React.FC = () => {
               name="Chat"
               component={ChatScreen}
               options={{ title: 'Chat' }}
+            />
+            <Stack.Screen
+              name="Vision"
+              component={VisionScreen}
+              options={{ title: 'Vision' }}
             />
             <Stack.Screen
               name="ToolCalling"
