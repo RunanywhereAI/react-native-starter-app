@@ -42,6 +42,7 @@ export const FeatureCard: React.FC<FeatureCardProps> = ({
 const getIconEmoji = (title: string): string => {
   const iconMap: Record<string, string> = {
     Chat: '💬',
+    Vision: '👁',
     Tools: '🛠',
     Speech: '🎤',
     Voice: '🔊',

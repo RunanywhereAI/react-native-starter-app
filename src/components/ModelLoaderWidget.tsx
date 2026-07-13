@@ -30,6 +30,7 @@ export const ModelLoaderWidget: React.FC<ModelLoaderWidgetProps> = ({
 }) => {
   const getIconEmoji = () => {
     if (title.includes('LLM')) return '🤖';
+    if (title.includes('Vision')) return '👁';
     if (title.includes('STT')) return '🎤';
     if (title.includes('TTS')) return '🔊';
     if (title.includes('Voice')) return '✨';
