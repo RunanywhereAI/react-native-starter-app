@@ -29,7 +29,7 @@ const App: React.FC = () => {
       try {
         // Initialize RunAnywhere SDK (Development mode doesn't require API key)
         await RunAnywhere.initialize({
-          environment: SDKEnvironment.Development,
+          environment: SDKEnvironment.SDK_ENVIRONMENT_DEVELOPMENT,
         });
 
         // Register backends (per docs: https://docs.runanywhere.ai/react-native/quick-start)

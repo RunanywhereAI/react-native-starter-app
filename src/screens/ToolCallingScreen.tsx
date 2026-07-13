@@ -11,101 +11,25 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import {
-  RunAnywhere,
-  ToolDefinition,
-  ToolCall,
-  ToolResult,
+import { RunAnywhere } from '@runanywhere/core';
+import type {
   ToolCallingResult,
-} from '@runanywhere/core';
+} from '@runanywhere/proto-ts/tool_calling';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget } from '../components';
+import { DEMO_TOOLS, registerDemoTools } from '../utils/chatSampleTools';
 
-// ─── Tool Definitions ────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────
 
-const DEMO_TOOLS: ToolDefinition[] = [
-  {
-    name: 'get_weather',
-    description: 'Get the current weather for a given city',
-    parameters: [
-      {
-        name: 'city',
-        type: 'string',
-        description: 'The city name, e.g. "San Francisco"',
-        required: true,
-      },
-      {
-        name: 'unit',
-        type: 'string',
-        description: 'Temperature unit: "celsius" or "fahrenheit"',
-        required: false,
-        defaultValue: 'celsius',
-        enum: ['celsius', 'fahrenheit'],
-      },
-    ],
-  },
-  {
-    name: 'calculate',
-    description: 'Perform a mathematical calculation',
-    parameters: [
-      {
-        name: 'expression',
-        type: 'string',
-        description: 'A math expression to evaluate, e.g. "2 + 2"',
-        required: true,
-      },
-    ],
-  },
-  {
-    name: 'get_time',
-    description: 'Get the current date and time for a timezone',
-    parameters: [
-      {
-        name: 'timezone',
-        type: 'string',
-        description: 'IANA timezone, e.g. "America/New_York"',
-        required: false,
-        defaultValue: 'UTC',
-      },
-    ],
-  },
-];
-
-// ─── Mock Tool Executors ─────────────────────────────────────────
-
-const mockWeather = async (args: Record<string, unknown>) => {
-  const city = (args.city as string) || 'Unknown';
-  const unit = (args.unit as string) || 'celsius';
-  const temp = Math.floor(Math.random() * 30) + 5;
-  return {
-    city,
-    temperature: unit === 'fahrenheit' ? Math.round(temp * 1.8 + 32) : temp,
-    unit,
-    condition: ['Sunny', 'Cloudy', 'Rainy', 'Partly Cloudy'][Math.floor(Math.random() * 4)],
-    humidity: Math.floor(Math.random() * 60) + 30,
-  };
-};
-
-const mockCalculate = async (args: Record<string, unknown>) => {
-  const expr = (args.expression as string) || '0';
+/** Pretty-print a JSON-encoded string (argumentsJson / resultJson); falls
+ *  back to the raw string when it isn't valid JSON. */
+const formatJson = (json: string | undefined): string | undefined => {
+  if (!json) return json;
   try {
-    // Simple safe eval for basic math
-    const sanitized = expr.replace(/[^0-9+\-*/().% ]/g, '');
-    const result = Function(`"use strict"; return (${sanitized})`)();
-    return { expression: expr, result: Number(result) };
+    return JSON.stringify(JSON.parse(json), null, 2);
   } catch {
-    return { expression: expr, error: 'Could not evaluate expression' };
-  }
-};
-
-const mockGetTime = async (args: Record<string, unknown>) => {
-  const tz = (args.timezone as string) || 'UTC';
-  try {
-    const now = new Date().toLocaleString('en-US', { timeZone: tz });
-    return { timezone: tz, datetime: now };
-  } catch {
-    return { timezone: tz, datetime: new Date().toISOString() };
+    return json;
   }
 };
 
@@ -149,13 +73,9 @@ export const ToolCallingScreen: React.FC = () => {
 
   // ─── Register tools ──────────────────────────────────────────
 
-  const handleRegisterTools = () => {
+  const handleRegisterTools = async () => {
     try {
-      RunAnywhere.clearTools();
-
-      RunAnywhere.registerTool(DEMO_TOOLS[0], mockWeather);
-      RunAnywhere.registerTool(DEMO_TOOLS[1], mockCalculate);
-      RunAnywhere.registerTool(DEMO_TOOLS[2], mockGetTime);
+      await registerDemoTools();
 
       setToolsRegistered(true);
       addLog('info', 'Tools Registered', `Registered ${DEMO_TOOLS.length} tools: ${DEMO_TOOLS.map(t => t.name).join(', ')}`);
@@ -183,21 +103,23 @@ export const ToolCallingScreen: React.FC = () => {
         maxTokens: 512,
       });
 
-      // Log tool calls
+      // Log tool calls (ToolCall.name / .argumentsJson, ToolResult.name / .resultJson
+      // are the proto-canonical field names — the old toolName/arguments/result
+      // shorthand fields were removed).
       if (result.toolCalls.length > 0) {
         for (let i = 0; i < result.toolCalls.length; i++) {
-          const tc = result.toolCalls[i];
+          const tc = result.toolCalls[i]!;
           addLog(
             'tool_call',
-            `Tool Call: ${tc.toolName}`,
-            JSON.stringify(tc.arguments, null, 2),
+            `Tool Call: ${tc.name}`,
+            formatJson(tc.argumentsJson),
           );
-          if (result.toolResults[i]) {
-            const tr = result.toolResults[i];
+          const tr = result.toolResults[i];
+          if (tr) {
             addLog(
               'tool_result',
-              `Result: ${tr.toolName} (${tr.success ? 'success' : 'failed'})`,
-              tr.success ? JSON.stringify(tr.result, null, 2) : tr.error,
+              `Result: ${tr.name} (${tr.success ? 'success' : 'failed'})`,
+              tr.success ? formatJson(tr.resultJson) : tr.error,
             );
           }
         }
@@ -211,27 +133,6 @@ export const ToolCallingScreen: React.FC = () => {
       addLog('error', 'Generation Failed', String(error));
     } finally {
       setIsRunning(false);
-    }
-  };
-
-  // ─── Manual parse test ───────────────────────────────────────
-
-  const handleParseSample = async () => {
-    addLog('info', 'Parse Test', 'Testing parseToolCall with sample output...');
-
-    const sampleOutput = `I'll check the weather for you.\n<tool_call>{"name": "get_weather", "arguments": {"city": "San Francisco"}}</tool_call>`;
-
-    try {
-      const parsed = await RunAnywhere.parseToolCall(sampleOutput);
-      addLog(
-        'tool_call',
-        'Parsed Tool Call',
-        parsed.toolCall
-          ? `Tool: ${parsed.toolCall.toolName}\nArgs: ${JSON.stringify(parsed.toolCall.arguments, null, 2)}\nClean text: "${parsed.text}"`
-          : `No tool call detected. Text: "${parsed.text}"`,
-      );
-    } catch (error) {
-      addLog('error', 'Parse Failed', String(error));
     }
   };
 
@@ -267,10 +168,6 @@ export const ToolCallingScreen: React.FC = () => {
           <Text style={styles.actionBtnText}>
             {toolsRegistered ? 'Tools Ready' : 'Register Tools'}
           </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionBtn} onPress={handleParseSample}>
-          <Text style={styles.actionBtnText}>Parse Test</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -331,7 +228,7 @@ export const ToolCallingScreen: React.FC = () => {
 
       {/* Suggestion chips */}
       <View style={styles.suggestions}>
-        {['What\'s the weather in Tokyo?', 'Calculate 123 * 456', 'What time is it in New York?'].map(s => (
+        {['What\'s the weather in Tokyo?', 'Calculate 123 * 456', 'What time is it right now?'].map(s => (
           <TouchableOpacity
             key={s}
             style={styles.suggestionChip}
