@@ -1,32 +1,21 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Platform,
-  NativeModules,
+  Alert,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import RNFS from 'react-native-fs';
-import { RunAnywhere, VoiceSessionEvent, VoiceSessionHandle } from '@runanywhere/core';
+import { RunAnywhere, VoiceAgentMicDriver } from '@runanywhere/core';
+import type {
+  VoiceAgentMicTurn,
+  VoiceAgentMicPhase,
+} from '@runanywhere/core';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget, AudioVisualizer } from '../components';
-
-// Conditionally import Sound - disabled on iOS via react-native.config.js
-let Sound: any = null;
-if (Platform.OS === 'android') {
-  try {
-    Sound = require('react-native-sound').default;
-  } catch (e) {
-    console.log('react-native-sound not available');
-  }
-}
-
-// iOS uses NativeAudioModule
-const { NativeAudioModule } = NativeModules;
 
 interface ConversationMessage {
   role: 'user' | 'assistant';
@@ -34,261 +23,128 @@ interface ConversationMessage {
   timestamp: Date;
 }
 
-// Model IDs - must match those registered in ModelService
-const MODEL_IDS = {
-  llm: 'lfm2-350m-q8_0',
-  stt: 'sherpa-onnx-whisper-tiny.en',
-  tts: 'vits-piper-en_US-lessac-medium',
-};
-
 export const VoicePipelineScreen: React.FC = () => {
   const modelService = useModelService();
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState<string>('Ready');
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
   const [audioLevel, setAudioLevel] = useState(0);
-  
-  // Refs for session and audio
-  const sessionRef = useRef<VoiceSessionHandle | null>(null);
-  const currentSoundRef = useRef<any>(null);
-  const isPlayingRef = useRef<boolean>(false);
 
-  // Handle voice session events per docs:
-  // https://docs.runanywhere.ai/react-native/voice-agent#voicesessionevent
-  const handleVoiceEvent = useCallback((event: VoiceSessionEvent) => {
-    switch (event.type) {
-      case 'sessionStarted':
-        setStatus('Listening...');
-        setAudioLevel(0.2);
-        break;
-        
-      case 'listeningStarted':
+  // The mic driver is the audio ingress: it captures mic frames, segments
+  // utterances, runs each one through the full VAD -> STT -> LLM -> TTS
+  // pipeline (processVoiceTurn), surfaces the turn, and plays the synthesized
+  // reply — all internally. The screen only needs to react to turn/phase/error
+  // callbacks; there is no manual WAV encoding or native audio module here.
+  const micDriverRef = useRef<VoiceAgentMicDriver | null>(null);
+
+  const cleanupVoiceSession = useCallback(async () => {
+    if (micDriverRef.current) {
+      micDriverRef.current.stop();
+      micDriverRef.current = null;
+    }
+    try {
+      await RunAnywhere.cleanupVoiceAgent();
+    } catch (error) {
+      console.error('[VoicePipeline] cleanupVoiceAgent failed:', error);
+    }
+  }, []);
+
+  // Tear down mic capture + the voice agent if the user navigates away while
+  // a session is active.
+  useEffect(() => {
+    return () => {
+      void cleanupVoiceSession();
+    };
+  }, [cleanupVoiceSession]);
+
+  // Map the mic driver's coarse phase to a human-readable status + a rough
+  // audio-level value for the visualizer.
+  const handlePhase = useCallback((phase: VoiceAgentMicPhase) => {
+    switch (phase) {
+      case 'listening':
         setStatus('Listening...');
         setAudioLevel(0.3);
         break;
-        
-      case 'speechDetected':
-        setStatus('Hearing you...');
-        setAudioLevel(0.7);
-        break;
-        
-      case 'speechEnded':
-        setAudioLevel(0.1);
-        break;
-        
-      case 'transcribing':
-        setStatus('Processing speech...');
-        setAudioLevel(0.4);
-        break;
-        
-      case 'transcriptionComplete':
-        if (event.data?.transcript) {
-          const userMessage: ConversationMessage = {
-            role: 'user',
-            text: event.data.transcript,
-            timestamp: new Date(),
-          };
-          setConversation(prev => [...prev, userMessage]);
-        }
+      case 'processing':
         setStatus('Thinking...');
         setAudioLevel(0.5);
         break;
-        
-      case 'generating':
-        setStatus('Generating response...');
-        setAudioLevel(0.5);
-        break;
-        
-      case 'generationComplete':
-        if (event.data?.response) {
-          const assistantMessage: ConversationMessage = {
-            role: 'assistant',
-            text: event.data.response,
-            timestamp: new Date(),
-          };
-          setConversation(prev => [...prev, assistantMessage]);
-        }
-        setStatus('Synthesizing...');
-        setAudioLevel(0.6);
-        break;
-        
-      case 'synthesizing':
-        setStatus('Preparing voice...');
-        break;
-        
-      case 'synthesisComplete':
-        setStatus('Speaking...');
-        // Play audio if provided
-        if (event.data?.audio) {
-          playResponseAudio(event.data.audio);
-        }
-        break;
-        
       case 'speaking':
         setStatus('Speaking...');
         setAudioLevel(0.8);
         break;
-        
-      case 'turnComplete':
-        setStatus('Listening...');
-        setAudioLevel(0.3);
-        break;
-        
-      case 'error':
-        setStatus(`Error: ${event.data?.error || 'Unknown error'}`);
-        setAudioLevel(0);
-        console.error('Voice session error:', event.data?.error);
-        break;
     }
   }, []);
 
-  // Play synthesized audio response - platform-specific
-  const playResponseAudio = async (base64Audio: string) => {
-    try {
-      if (Platform.OS === 'ios' && NativeAudioModule) {
-        // iOS: Use NativeAudioModule
-        isPlayingRef.current = true;
-        setAudioLevel(0.8);
-        await NativeAudioModule.playAudioBase64(base64Audio, 22050);
-        isPlayingRef.current = false;
-        setAudioLevel(0.3);
-      } else if (Platform.OS === 'android' && Sound) {
-        // Android: Use react-native-sound
-        const wavData = createWavFromBase64Float32(base64Audio, 22050);
-        const tempPath = `${RNFS.TemporaryDirectoryPath}/voice_response_${Date.now()}.wav`;
-        await RNFS.writeFile(tempPath, wavData, 'base64');
-
-        const sound = new Sound(tempPath, '', (error: any) => {
-          if (error) {
-            console.error('Failed to load sound:', error);
-            return;
-          }
-          
-          currentSoundRef.current = sound;
-          setAudioLevel(0.8);
-          
-          sound.play((success: boolean) => {
-            sound.release();
-            currentSoundRef.current = null;
-            setAudioLevel(0.3);
-          });
-        });
-      } else {
-        console.warn('No audio playback module available');
+  // Append a finished turn as distinct user + assistant conversation bubbles.
+  const handleTurn = useCallback((turn: VoiceAgentMicTurn) => {
+    setConversation((prev) => {
+      const next = [...prev];
+      if (turn.userText.length > 0) {
+        next.push({ role: 'user', text: turn.userText, timestamp: new Date() });
       }
-    } catch (error) {
-      console.error('Error playing audio:', error);
-      isPlayingRef.current = false;
-      setAudioLevel(0.3);
-    }
-  };
-
-  // Convert base64 float32 PCM to WAV format
-  const createWavFromBase64Float32 = (base64Audio: string, sampleRate: number): string => {
-    const binaryStr = atob(base64Audio);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    const float32Samples = new Float32Array(bytes.buffer);
-    const numSamples = float32Samples.length;
-
-    const wavBuffer = new ArrayBuffer(44 + numSamples * 2);
-    const view = new DataView(wavBuffer);
-
-    // WAV header
-    const writeString = (offset: number, str: string) => {
-      for (let i = 0; i < str.length; i++) {
-        view.setUint8(offset + i, str.charCodeAt(i));
+      if (turn.assistantText.length > 0) {
+        next.push({ role: 'assistant', text: turn.assistantText, timestamp: new Date() });
       }
-    };
+      return next;
+    });
+  }, []);
 
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + numSamples * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeString(36, 'data');
-    view.setUint32(40, numSamples * 2, true);
+  const handleTurnError = useCallback((error: Error) => {
+    console.error('[VoicePipeline] Voice turn error:', error);
+    setStatus(`Error: ${error.message}`);
+    setAudioLevel(0);
+  }, []);
 
-    let offset = 44;
-    for (let i = 0; i < float32Samples.length; i++) {
-      const s = Math.max(-1, Math.min(1, float32Samples[i]));
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-      offset += 2;
-    }
-
-    const uint8Array = new Uint8Array(wavBuffer);
-    let result = '';
-    for (let i = 0; i < uint8Array.length; i++) {
-      result += String.fromCharCode(uint8Array[i]);
-    }
-    return btoa(result);
-  };
-
-  // Start voice session per docs:
-  // https://docs.runanywhere.ai/react-native/voice-agent#startvoicesession
+  // Start voice session: compose the pipeline against the already-loaded
+  // LLM/STT/TTS models, then let the mic driver own capture -> turn ->
+  // playback for as long as the session stays active.
   const startVoiceAgent = async () => {
+    if (!modelService.isVoiceAgentReady) return;
+
     setIsActive(true);
     setStatus('Starting...');
 
     try {
-      // Per docs: Use startVoiceSession with VoiceSessionConfig and callback
-      sessionRef.current = await RunAnywhere.startVoiceSession(
-        {
-          agentConfig: {
-            llmModelId: MODEL_IDS.llm,
-            sttModelId: MODEL_IDS.stt,
-            ttsModelId: MODEL_IDS.tts,
-            systemPrompt: 'You are a helpful, friendly voice assistant. Keep your responses brief and conversational.',
-            generationOptions: {
-              maxTokens: 150,
-              temperature: 0.7,
-            },
-          },
-          enableVAD: true,
-          vadSensitivity: 0.5,
-          speechTimeout: 3000, // 3 seconds timeout for speech
-        },
-        handleVoiceEvent
-      );
+      await RunAnywhere.initializeVoiceAgentWithLoadedModels();
+
+      const driver = new VoiceAgentMicDriver();
+      micDriverRef.current = driver;
+      const started = await driver.start({
+        onTurn: handleTurn,
+        onPhase: handlePhase,
+        onError: handleTurnError,
+      });
+
+      if (!started) {
+        micDriverRef.current = null;
+        await cleanupVoiceSession();
+        setIsActive(false);
+        setStatus('Ready');
+        Alert.alert(
+          'Microphone needed',
+          'Grant microphone permission to use the voice agent.'
+        );
+        return;
+      }
+
+      setStatus('Listening...');
+      setAudioLevel(0.3);
     } catch (error) {
-      console.error('Voice agent error:', error);
+      console.error('[VoicePipeline] Voice agent error:', error);
       setStatus(`Error: ${error}`);
       setIsActive(false);
+      await cleanupVoiceSession();
     }
   };
 
   const stopVoiceAgent = async () => {
     try {
-      // Stop any playing audio - platform-specific
-      if (Platform.OS === 'ios' && isPlayingRef.current && NativeAudioModule) {
-        await NativeAudioModule.stopPlayback();
-        isPlayingRef.current = false;
-      } else if (currentSoundRef.current) {
-        currentSoundRef.current.stop(() => {
-          currentSoundRef.current?.release();
-          currentSoundRef.current = null;
-        });
-      }
-      
-      // Stop the voice session
-      if (sessionRef.current) {
-        await sessionRef.current.stop();
-        sessionRef.current = null;
-      }
-      
+      await cleanupVoiceSession();
+    } finally {
       setIsActive(false);
       setStatus('Ready');
       setAudioLevel(0);
-    } catch (error) {
-      console.error('Stop voice agent error:', error);
     }
   };
 
@@ -394,7 +250,7 @@ export const VoicePipelineScreen: React.FC = () => {
             <Text style={styles.infoTitle}>How it works:</Text>
             <View style={styles.infoStep}>
               <Text style={styles.stepNumber}>1️⃣</Text>
-              <Text style={styles.stepText}>Voice Activity Detection (VAD) listens for speech</Text>
+              <Text style={styles.stepText}>The mic listens continuously and detects speech automatically</Text>
             </View>
             <View style={styles.infoStep}>
               <Text style={styles.stepNumber}>2️⃣</Text>
@@ -402,11 +258,11 @@ export const VoicePipelineScreen: React.FC = () => {
             </View>
             <View style={styles.infoStep}>
               <Text style={styles.stepNumber}>3️⃣</Text>
-              <Text style={styles.stepText}>AI generates response (LLM with SmolLM2)</Text>
+              <Text style={styles.stepText}>AI generates a response (on-device LLM)</Text>
             </View>
             <View style={styles.infoStep}>
               <Text style={styles.stepNumber}>4️⃣</Text>
-              <Text style={styles.stepText}>Response is spoken (TTS with Piper)</Text>
+              <Text style={styles.stepText}>Response is spoken back (TTS with Piper)</Text>
             </View>
           </View>
         )}

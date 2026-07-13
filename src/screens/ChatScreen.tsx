@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { RunAnywhere } from '@runanywhere/core';
+import { LLMGenerationOptions } from '@runanywhere/proto-ts/llm_options';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ChatMessageBubble, ChatMessage, ModelLoaderWidget } from '../components';
@@ -22,8 +23,8 @@ export const ChatScreen: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentResponse, setCurrentResponse] = useState('');
   const flatListRef = useRef<FlatList>(null);
-  const streamCancelRef = useRef<(() => void) | null>(null);
   const responseRef = useRef(''); // Track response for closure
+  const wasCancelledRef = useRef(false);
 
   useEffect(() => {
     // Scroll to bottom when messages change
@@ -48,37 +49,44 @@ export const ChatScreen: React.FC = () => {
     setInputText('');
     setIsGenerating(true);
     setCurrentResponse('');
+    responseRef.current = '';
+    wasCancelledRef.current = false;
 
     try {
-      // Per docs: https://docs.runanywhere.ai/react-native/quick-start#6-stream-responses
-      const streamResult = await RunAnywhere.generateStream(text, {
-        maxTokens: 256,
-        temperature: 0.8,
-      });
+      // Canonical cross-SDK streaming path: generateStream() returns an
+      // AsyncIterable<LLMStreamEvent>; aggregateStream() drives it to
+      // completion (manual iterator.next() loop under the hood — Hermes does
+      // not support `for await...of` over NitroModules async iterables) and
+      // reports the running transcript via onToken for live UI updates.
+      const eventStream = RunAnywhere.generateStream(
+        text,
+        LLMGenerationOptions.fromPartial({
+          maxTokens: 256,
+          temperature: 0.8,
+        })
+      );
+      const finalResult = await RunAnywhere.aggregateStream(
+        text,
+        eventStream,
+        (transcript) => {
+          responseRef.current = transcript;
+          setCurrentResponse(transcript);
+        }
+      );
 
-      streamCancelRef.current = streamResult.cancel;
-      responseRef.current = '';
-
-      // Stream tokens as they arrive
-      for await (const token of streamResult.stream) {
-        responseRef.current += token;
-        setCurrentResponse(responseRef.current);
-      }
-
-      // Get final metrics
-      const finalResult = await streamResult.result;
-
-      // Add assistant message (use ref to get final text due to closure)
+      const finalText = finalResult.text || responseRef.current;
       const assistantMessage: ChatMessage = {
-        text: responseRef.current,
+        text: finalText,
         isUser: false,
         timestamp: new Date(),
-        tokensPerSecond: finalResult.performanceMetrics?.tokensPerSecond,
-        totalTokens: finalResult.performanceMetrics?.totalTokens,
+        tokensPerSecond: finalResult.tokensPerSecond,
+        totalTokens: finalResult.totalTokens,
+        wasCancelled: wasCancelledRef.current,
       };
       setMessages(prev => [...prev, assistantMessage]);
       setCurrentResponse('');
       responseRef.current = '';
+      wasCancelledRef.current = false;
       setIsGenerating(false);
     } catch (error) {
       const errorMessage: ChatMessage = {
@@ -94,21 +102,8 @@ export const ChatScreen: React.FC = () => {
   };
 
   const handleStop = () => {
-    if (streamCancelRef.current) {
-      streamCancelRef.current();
-      if (responseRef.current) {
-        const message: ChatMessage = {
-          text: responseRef.current,
-          isUser: false,
-          timestamp: new Date(),
-          wasCancelled: true,
-        };
-        setMessages(prev => [...prev, message]);
-      }
-      setCurrentResponse('');
-      responseRef.current = '';
-      setIsGenerating(false);
-    }
+    wasCancelledRef.current = true;
+    void RunAnywhere.cancelGeneration();
   };
 
   const handleClearChat = () => {

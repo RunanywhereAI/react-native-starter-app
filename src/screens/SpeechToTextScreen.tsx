@@ -12,12 +12,24 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { RunAnywhere } from '@runanywhere/core';
+import { STTLanguage } from '@runanywhere/proto-ts/stt_options';
+import { AudioFormat, ModelCategory } from '@runanywhere/proto-ts/model_types';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget, AudioVisualizer } from '../components';
 
 // Native Audio Module - records in WAV format (16kHz mono) optimal for Whisper STT
 const { NativeAudioModule } = NativeModules;
+
+/** Decode a base64 string into raw bytes (the recorded WAV file, header included). */
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
 
 export const SpeechToTextScreen: React.FC = () => {
   const modelService = useModelService();
@@ -128,16 +140,21 @@ export const SpeechToTextScreen: React.FC = () => {
       }
 
       // Check if STT model is loaded
-      const isModelLoaded = await RunAnywhere.isSTTModelLoaded();
-      if (!isModelLoaded) {
+      const modelInfo = await RunAnywhere.modelInfoForCategory(
+        ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION
+      );
+      if (!modelInfo) {
         throw new Error('STT model not loaded. Please download and load the model first.');
       }
 
-      // Transcribe using base64 audio data directly from native module
+      // Transcribe using the raw WAV bytes recorded by the native module
+      // (transcribe() takes a Uint8Array, not base64).
       console.warn('[STT] Starting transcription...');
-      const transcribeResult = await RunAnywhere.transcribe(audioBase64, {
+      const audioBytes = base64ToBytes(audioBase64);
+      const transcribeResult = await RunAnywhere.transcribe(audioBytes, {
         sampleRate: 16000,
-        language: 'en',
+        language: STTLanguage.STT_LANGUAGE_EN,
+        audioFormat: AudioFormat.AUDIO_FORMAT_WAV,
       });
 
       console.warn('[STT] Transcription result:', transcribeResult);

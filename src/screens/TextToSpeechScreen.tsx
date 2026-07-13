@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,17 +6,12 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  NativeModules,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import RNFS from 'react-native-fs';
 import { RunAnywhere } from '@runanywhere/core';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget } from '../components';
-
-// Native Audio Module for better audio session management
-const { NativeAudioModule } = NativeModules;
 
 const SAMPLE_TEXTS = [
   'Hello! Welcome to RunAnywhere. Experience the power of on-device AI.',
@@ -28,95 +23,36 @@ const SAMPLE_TEXTS = [
 export const TextToSpeechScreen: React.FC = () => {
   const modelService = useModelService();
   const [text, setText] = useState('');
-  const [isSynthesizing, setIsSynthesizing] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
+  // The SDK's speak() synthesizes AND plays back through its own in-SDK
+  // audio player in one awaited call — no host-app native module or manual
+  // WAV file handling required.
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechRate, setSpeechRate] = useState(1.0);
-  const [currentAudioPath, setCurrentAudioPath] = useState<string | null>(null);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (NativeAudioModule && isPlaying) {
-        NativeAudioModule.stopPlayback().catch(() => {});
-      }
-    };
-  }, [isPlaying]);
 
   const synthesizeAndPlay = async () => {
-    if (!text.trim()) {
+    if (!text.trim() || isSpeaking) {
       return;
     }
 
-    setIsSynthesizing(true);
-
+    setIsSpeaking(true);
     try {
-      // Per docs: https://docs.runanywhere.ai/react-native/tts/synthesize
-      // result.audio contains base64-encoded float32 PCM
-      // Using same config as sample app for consistent voice output
-      const result = await RunAnywhere.synthesize(text, { 
-        voice: 'default',
-        rate: speechRate,
+      // Per docs: RunAnywhere.speak() synthesizes then plays the result via
+      // the SDK's own AudioPlaybackManager; it resolves once playback ends.
+      await RunAnywhere.speak(text, {
+        speakingRate: speechRate,
         pitch: 1.0,
         volume: 1.0,
       });
-
-      console.log(`[TTS] Synthesized: duration=${result.duration}s, sampleRate=${result.sampleRate}Hz, numSamples=${result.numSamples}`);
-
-      // Use SDK's built-in WAV converter (same as sample app)
-      const tempPath = await RunAnywhere.Audio.createWavFromPCMFloat32(
-        result.audio,
-        result.sampleRate || 22050
-      );
-
-      console.log(`[TTS] WAV file created: ${tempPath}`);
-
-      setCurrentAudioPath(tempPath);
-      setIsSynthesizing(false);
-      setIsPlaying(true);
-
-      // Play using native audio module
-      if (NativeAudioModule) {
-        try {
-          const playResult = await NativeAudioModule.playAudio(tempPath);
-          console.log(`[TTS] Playback started, duration: ${playResult.duration}s`);
-          
-          // Wait for playback to complete (approximate based on duration)
-          setTimeout(() => {
-            setIsPlaying(false);
-            setCurrentAudioPath(null);
-            // Clean up file
-            RNFS.unlink(tempPath).catch(() => {});
-          }, (result.duration + 0.5) * 1000);
-        } catch (playError) {
-          console.error('[TTS] Native playback error:', playError);
-          setIsPlaying(false);
-        }
-      } else {
-        console.error('[TTS] NativeAudioModule not available');
-        setIsPlaying(false);
-      }
     } catch (error) {
       console.error('[TTS] Error:', error);
-      setIsSynthesizing(false);
-      setIsPlaying(false);
+    } finally {
+      setIsSpeaking(false);
     }
   };
 
   const stopPlayback = async () => {
-    if (NativeAudioModule) {
-      try {
-        await NativeAudioModule.stopPlayback();
-      } catch (e) {
-        // Ignore
-      }
-    }
-    setIsPlaying(false);
-    
-    // Clean up file
-    if (currentAudioPath) {
-      RNFS.unlink(currentAudioPath).catch(() => {});
-      setCurrentAudioPath(null);
-    }
+    await RunAnywhere.stopSpeaking();
+    setIsSpeaking(false);
   };
 
   if (!modelService.isTTSLoaded) {
@@ -195,20 +131,15 @@ export const TextToSpeechScreen: React.FC = () => {
         </View>
 
         {/* Playback Area */}
-        <View style={[styles.playbackArea, isPlaying && styles.playbackActive]}>
-          {isPlaying ? (
+        <View style={[styles.playbackArea, isSpeaking && styles.playbackActive]}>
+          {isSpeaking ? (
             <>
               <View style={styles.waveform}>
                 {[...Array(7)].map((_, i) => (
                   <View key={i} style={styles.waveBar} />
                 ))}
               </View>
-              <Text style={styles.playbackStatus}>Playing...</Text>
-            </>
-          ) : isSynthesizing ? (
-            <>
-              <Text style={styles.loadingIcon}>⏳</Text>
-              <Text style={styles.playbackStatus}>Synthesizing...</Text>
+              <Text style={styles.playbackStatus}>Speaking...</Text>
             </>
           ) : (
             <>
@@ -219,8 +150,8 @@ export const TextToSpeechScreen: React.FC = () => {
 
           {/* Play Button */}
           <TouchableOpacity
-            onPress={isPlaying ? stopPlayback : synthesizeAndPlay}
-            disabled={isSynthesizing || !text.trim()}
+            onPress={isSpeaking ? stopPlayback : synthesizeAndPlay}
+            disabled={!text.trim()}
             activeOpacity={0.8}
             style={styles.playButtonWrapper}
           >
@@ -231,7 +162,7 @@ export const TextToSpeechScreen: React.FC = () => {
               style={styles.playButton}
             >
               <Text style={styles.playButtonIcon}>
-                {isSynthesizing ? '⏳' : isPlaying ? '⏹' : '▶️'}
+                {isSpeaking ? '⏹' : '▶️'}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
