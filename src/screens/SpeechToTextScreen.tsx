@@ -96,7 +96,7 @@ export const SpeechToTextScreen: React.FC = () => {
           const levelResult = await NativeAudioModule.getAudioLevel();
           setAudioLevel(levelResult.level || 0);
           setRecordingDuration(Date.now() - recordingStartRef.current);
-        } catch (e) {
+        } catch {
           // Ignore errors during polling
         }
       }, 100);

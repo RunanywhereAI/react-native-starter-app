@@ -75,8 +75,10 @@ export class VLMService {
 
   /** Cancel any in-flight VLM generation. */
   cancel(): void {
-    // Closing the stream is what cancels the native generation now.
-    void this.stream?.return?.(undefined);
+    // Closing the stream is what cancels the native generation now. The
+    // teardown is fire-and-forget, so swallow a rejection rather than let it
+    // escape as an unhandled promise rejection.
+    this.stream?.return?.(undefined)?.catch(() => {});
     this.stream = null;
   }
 }

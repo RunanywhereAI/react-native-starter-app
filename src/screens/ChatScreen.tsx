@@ -75,6 +75,16 @@ export const ChatScreen: React.FC = () => {
             setCurrentResponse(responseRef.current);
           } else if (event.type === 'completed') {
             finalResult = event.result;
+          } else if (event.type === 'cancelled') {
+            // Terminal, like completed/failed. Native can cancel on its own
+            // (not only via handleStop), so mark it here or the bubble renders
+            // a truncated reply as if it finished normally.
+            wasCancelledRef.current = true;
+            if (!responseRef.current && typeof event.partial === 'string') {
+              responseRef.current = event.partial;
+              setCurrentResponse(event.partial);
+            }
+            break;
           } else if (event.type === 'failed') {
             throw event.error;
           }
@@ -112,12 +122,10 @@ export const ChatScreen: React.FC = () => {
 
   const handleStop = () => {
     wasCancelledRef.current = true;
-    // The stream's own cancel hook calls into native cancellation.
-    void streamRef.current?.return?.(undefined);
-  };
-
-  const handleClearChat = () => {
-    setMessages([]);
+    // The stream's own cancel hook calls into native cancellation. Swallow a
+    // rejection from that teardown: it is fire-and-forget, and an unhandled
+    // rejection here surfaces as a red-box warning in React Native.
+    streamRef.current?.return?.(undefined)?.catch(() => {});
   };
 
   const renderSuggestionChip = (text: string) => (

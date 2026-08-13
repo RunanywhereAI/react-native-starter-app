@@ -272,24 +272,27 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
     ]);
   }, [downloadAndLoadLLM, downloadAndLoadSTT, downloadAndLoadTTS]);
 
-  // Unload all models
+  // Unload all models.
+  // Each category is unloaded independently: a single failing category used to
+  // abort the whole sequence and skip every `setIsXLoaded(false)`, leaving the
+  // UI claiming models were still loaded when most had already been unloaded.
   const unloadAllModels = useCallback(async () => {
-    try {
-      await RunAnywhere.models.unloadAll(ModelCategory.MODEL_CATEGORY_LANGUAGE);
-      await RunAnywhere.models.unloadAll(ModelCategory.MODEL_CATEGORY_MULTIMODAL);
-      await RunAnywhere.models.unloadAll(
-        ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION
-      );
-      await RunAnywhere.models.unloadAll(
-        ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS
-      );
-      setIsLLMLoaded(false);
-      setIsVLMLoaded(false);
-      setIsSTTLoaded(false);
-      setIsTTSLoaded(false);
-    } catch (error) {
-      console.error('Error unloading models:', error);
-    }
+    const targets: Array<[ModelCategory, (loaded: boolean) => void]> = [
+      [ModelCategory.MODEL_CATEGORY_LANGUAGE, setIsLLMLoaded],
+      [ModelCategory.MODEL_CATEGORY_MULTIMODAL, setIsVLMLoaded],
+      [ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION, setIsSTTLoaded],
+      [ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS, setIsTTSLoaded],
+    ];
+    await Promise.all(
+      targets.map(async ([category, setLoaded]) => {
+        try {
+          await RunAnywhere.models.unloadAll(category);
+          setLoaded(false);
+        } catch (error) {
+          console.error('Error unloading models:', category, error);
+        }
+      })
+    );
   }, []);
 
   const value: ModelServiceState = {

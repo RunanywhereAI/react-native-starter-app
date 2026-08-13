@@ -59,8 +59,16 @@ export const TextToSpeechScreen: React.FC = () => {
   };
 
   const stopPlayback = async () => {
-    await speechRef.current?.interrupt();
-    setIsSpeaking(false);
+    // Wired straight to onPress, so a rejecting interrupt() would both go
+    // unhandled and strand the button in its "stop" state. Always release the
+    // UI, whatever the SDK does.
+    try {
+      await speechRef.current?.interrupt();
+    } catch (error) {
+      console.error('[TTS] Interrupt error:', error);
+    } finally {
+      setIsSpeaking(false);
+    }
   };
 
   if (!modelService.isTTSLoaded) {

@@ -52,7 +52,6 @@ export const ToolCallingScreen: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [toolsRegistered, setToolsRegistered] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
-  const logIdRef = useRef(0);
 
   // Auto-scroll on new logs
   useEffect(() => {

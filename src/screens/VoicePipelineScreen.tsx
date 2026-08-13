@@ -35,8 +35,16 @@ export const VoicePipelineScreen: React.FC = () => {
   const eventsRef = useRef<AsyncIterator<VoiceEvent> | null>(null);
 
   const cleanupVoiceSession = useCallback(async () => {
-    await eventsRef.current?.return?.(undefined);
+    // Detach first, then close: callers reach here from the event loop's own
+    // failure path, so the iterator may already be in an errored state and
+    // its return() may reject. Teardown must still reach session.close().
+    const iterator = eventsRef.current;
     eventsRef.current = null;
+    try {
+      await iterator?.return?.(undefined);
+    } catch (error) {
+      console.error('[VoicePipeline] event stream close failed:', error);
+    }
     const session = sessionRef.current;
     sessionRef.current = null;
     if (session) {
@@ -52,7 +60,7 @@ export const VoicePipelineScreen: React.FC = () => {
   // a session is active.
   useEffect(() => {
     return () => {
-      void cleanupVoiceSession();
+      cleanupVoiceSession().catch(() => {});
     };
   }, [cleanupVoiceSession]);
 
@@ -114,10 +122,18 @@ export const VoicePipelineScreen: React.FC = () => {
           }
         }
       } catch (error) {
+        // The stream died mid-session. Without this the screen keeps showing a
+        // live agent ("Listening...", stop button armed) over a dead pipeline.
         console.error('[VoicePipeline] Voice event stream failed:', error);
+        setStatus(
+          `Error: ${error instanceof Error ? error.message : String(error)}`
+        );
+        setAudioLevel(0);
+        setIsActive(false);
+        await cleanupVoiceSession();
       }
     },
-    [appendMessage, applyAgentState]
+    [appendMessage, applyAgentState, cleanupVoiceSession]
   );
 
   // Start voice session: the SDK composes the pipeline from the model ids and
@@ -135,7 +151,7 @@ export const VoicePipelineScreen: React.FC = () => {
         tts: { id: MODEL_IDS.tts },
       });
       sessionRef.current = session;
-      void consumeEvents(session);
+      consumeEvents(session).catch(() => {});
       await session.start();
 
       setStatus('Listening...');

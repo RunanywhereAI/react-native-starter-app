@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "A comprehensive starter app demonstrating RunAnywhere SDK capabilities - on-device AI for React Native",
   "main": "index.js",
+  "packageManager": "yarn@3.6.1",
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios",
