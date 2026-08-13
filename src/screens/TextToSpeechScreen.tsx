@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { RunAnywhere } from '@runanywhere/core';
+import type { SpeechHandle } from '@runanywhere/core';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget } from '../components';
@@ -28,6 +29,7 @@ export const TextToSpeechScreen: React.FC = () => {
   // WAV file handling required.
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechRate, setSpeechRate] = useState(1.0);
+  const speechRef = useRef<SpeechHandle | null>(null);
 
   const synthesizeAndPlay = async () => {
     if (!text.trim() || isSpeaking) {
@@ -36,23 +38,37 @@ export const TextToSpeechScreen: React.FC = () => {
 
     setIsSpeaking(true);
     try {
-      // Per docs: RunAnywhere.speak() synthesizes then plays the result via
-      // the SDK's own AudioPlaybackManager; it resolves once playback ends.
-      await RunAnywhere.speak(text, {
-        speakingRate: speechRate,
+      // RunAnywhere.tts.speak() synthesizes and plays through the SDK's own
+      // AudioPlaybackManager, returning a handle immediately; awaiting
+      // waitForPlayout() resolves once playback finishes or is interrupted.
+      const handle = RunAnywhere.tts.speak(text, {
+        speed: speechRate,
         pitch: 1.0,
-        volume: 1.0,
       });
+      speechRef.current = handle;
+      await handle.waitForPlayout();
+      if (handle.error) {
+        console.error('[TTS] Error:', handle.error);
+      }
     } catch (error) {
       console.error('[TTS] Error:', error);
     } finally {
+      speechRef.current = null;
       setIsSpeaking(false);
     }
   };
 
   const stopPlayback = async () => {
-    await RunAnywhere.stopSpeaking();
-    setIsSpeaking(false);
+    // Wired straight to onPress, so a rejecting interrupt() would both go
+    // unhandled and strand the button in its "stop" state. Always release the
+    // UI, whatever the SDK does.
+    try {
+      await speechRef.current?.interrupt();
+    } catch (error) {
+      console.error('[TTS] Interrupt error:', error);
+    } finally {
+      setIsSpeaking(false);
+    }
   };
 
   if (!modelService.isTTSLoaded) {

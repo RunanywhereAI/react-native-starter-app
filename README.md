@@ -66,7 +66,7 @@ This app uses three RunAnywhere packages:
 # Clone and install
 git clone https://github.com/RunanywhereAI/react-native-starter-app.git
 cd react-native-starter-app
-npm install
+yarn install
 
 # iOS (requires pod install first)
 cd ios && pod install && cd ..
@@ -79,6 +79,9 @@ npx react-native run-android
 ### Prerequisites
 
 - **Node.js** 18 or higher
+- **Yarn** (Berry, e.g. via Corepack) — `yarn.lock` is the lockfile of record. Do not
+  run `npm install` in this project: npm rewrites `yarn.lock` into the incompatible
+  Yarn Classic format.
 - **React Native CLI** development environment ([setup guide](https://reactnative.dev/docs/environment-setup))
 - **iOS:** Xcode 14+, CocoaPods, macOS
 - **Android:** 
@@ -99,7 +102,7 @@ npx react-native run-android
 
 2. **Install dependencies**
    ```bash
-   npm install
+   yarn install
    ```
    > **Note:** This runs `patch-package` automatically via postinstall to apply necessary compatibility fixes.
 
@@ -296,6 +299,33 @@ All AI processing happens **on-device**. No data is sent to external servers. Th
 
 ## 🐛 Troubleshooting
 
+### Android NDK build fails: `'rac/rac_defaults_generated.h' file not found`
+
+**Known upstream defect in `@runanywhere/core@0.20.18`. iOS is unaffected.**
+
+An Android build (`yarn android`, or `cd android && ./gradlew assembleDebug`) fails
+at the NDK compile step with:
+
+```
+rac_llm_types.h:27:10: fatal error: 'rac/rac_defaults_generated.h' file not found
+```
+
+**Cause.** The published npm tarball ships the Android C headers under
+`android/src/main/jniLibs/include/rac/`, and five of them
+(`rac_{llm,stt,tts,vad,vlm}_types.h`) `#include "rac/rac_defaults_generated.h"`.
+That generated header is missing from the Android header set. It is present in
+the iOS slice (inside `RACommons.xcframework/*/Headers/rac/`), which is why only
+Android breaks.
+
+**Status.** A fix is merged in the `runanywhere-sdks` monorepo but has not been
+republished to npm yet. There is no supported local workaround: the missing file
+is generated from the IDL and must match the prebuilt `.so` ABI exactly, so
+hand-writing it risks silent runtime mismatch rather than a clean compile error.
+
+**What to do.** Build and run the iOS target until a release later than 0.20.18
+is published, then bump `@runanywhere/*` to it. Do not pin back to 0.20.17 to
+dodge this; other parts of this app target the 0.20.18 API surface.
+
 ### "Could not connect to development server" (Android)
 This happens on physical Android devices because they can't reach `localhost` on your computer.
 
@@ -335,7 +365,7 @@ The second run will succeed as codegen completes.
 
 ### Build errors
 - Clear cache: `cd android && ./gradlew clean` or `cd ios && rm -rf Pods Podfile.lock`
-- Reinstall dependencies: `rm -rf node_modules && npm install`
+- Reinstall dependencies: `rm -rf node_modules && yarn install`
 - For iOS: `cd ios && pod install --repo-update`
 - For Android: Delete `android/app/build` and `android/.gradle` folders, then rebuild
 

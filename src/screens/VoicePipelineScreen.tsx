@@ -8,13 +8,10 @@ import {
   Alert,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { RunAnywhere, VoiceAgentMicDriver } from '@runanywhere/core';
-import type {
-  VoiceAgentMicTurn,
-  VoiceAgentMicPhase,
-} from '@runanywhere/core';
+import { RunAnywhere } from '@runanywhere/core';
+import type { AgentState, VoiceEvent, VoiceSession } from '@runanywhere/core';
 import { AppColors } from '../theme';
-import { useModelService } from '../services/ModelService';
+import { useModelService, MODEL_IDS } from '../services/ModelService';
 import { ModelLoaderWidget, AudioVisualizer } from '../components';
 
 interface ConversationMessage {
@@ -30,22 +27,32 @@ export const VoicePipelineScreen: React.FC = () => {
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
   const [audioLevel, setAudioLevel] = useState(0);
 
-  // The mic driver is the audio ingress: it captures mic frames, segments
-  // utterances, runs each one through the full VAD -> STT -> LLM -> TTS
-  // pipeline (processVoiceTurn), surfaces the turn, and plays the synthesized
-  // reply — all internally. The screen only needs to react to turn/phase/error
-  // callbacks; there is no manual WAV encoding or native audio module here.
-  const micDriverRef = useRef<VoiceAgentMicDriver | null>(null);
+  // `RunAnywhere.voice.createSession` owns the whole pipeline: it loads the
+  // STT/LLM/TTS models, ensures a VAD, opens the microphone, segments
+  // utterances, runs each turn, and plays the synthesized reply. The screen
+  // only renders the session's event stream.
+  const sessionRef = useRef<VoiceSession | null>(null);
+  const eventsRef = useRef<AsyncIterator<VoiceEvent> | null>(null);
 
   const cleanupVoiceSession = useCallback(async () => {
-    if (micDriverRef.current) {
-      micDriverRef.current.stop();
-      micDriverRef.current = null;
-    }
+    // Detach first, then close: callers reach here from the event loop's own
+    // failure path, so the iterator may already be in an errored state and
+    // its return() may reject. Teardown must still reach session.close().
+    const iterator = eventsRef.current;
+    eventsRef.current = null;
     try {
-      await RunAnywhere.cleanupVoiceAgent();
+      await iterator?.return?.(undefined);
     } catch (error) {
-      console.error('[VoicePipeline] cleanupVoiceAgent failed:', error);
+      console.error('[VoicePipeline] event stream close failed:', error);
+    }
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    if (session) {
+      try {
+        await session.close();
+      } catch (error) {
+        console.error('[VoicePipeline] session.close failed:', error);
+      }
     }
   }, []);
 
@@ -53,19 +60,19 @@ export const VoicePipelineScreen: React.FC = () => {
   // a session is active.
   useEffect(() => {
     return () => {
-      void cleanupVoiceSession();
+      cleanupVoiceSession().catch(() => {});
     };
   }, [cleanupVoiceSession]);
 
-  // Map the mic driver's coarse phase to a human-readable status + a rough
+  // Map the agent's coarse state to a human-readable status + a rough
   // audio-level value for the visualizer.
-  const handlePhase = useCallback((phase: VoiceAgentMicPhase) => {
-    switch (phase) {
+  const applyAgentState = useCallback((state: AgentState) => {
+    switch (state) {
       case 'listening':
         setStatus('Listening...');
         setAudioLevel(0.3);
         break;
-      case 'processing':
+      case 'thinking':
         setStatus('Thinking...');
         setAudioLevel(0.5);
         break;
@@ -76,29 +83,61 @@ export const VoicePipelineScreen: React.FC = () => {
     }
   }, []);
 
-  // Append a finished turn as distinct user + assistant conversation bubbles.
-  const handleTurn = useCallback((turn: VoiceAgentMicTurn) => {
-    setConversation((prev) => {
-      const next = [...prev];
-      if (turn.userText.length > 0) {
-        next.push({ role: 'user', text: turn.userText, timestamp: new Date() });
-      }
-      if (turn.assistantText.length > 0) {
-        next.push({ role: 'assistant', text: turn.assistantText, timestamp: new Date() });
-      }
-      return next;
-    });
-  }, []);
+  const appendMessage = useCallback(
+    (role: ConversationMessage['role'], text: string) => {
+      if (text.length === 0) return;
+      setConversation((prev) => [...prev, { role, text, timestamp: new Date() }]);
+    },
+    []
+  );
 
-  const handleTurnError = useCallback((error: Error) => {
-    console.error('[VoicePipeline] Voice turn error:', error);
-    setStatus(`Error: ${error.message}`);
-    setAudioLevel(0);
-  }, []);
+  // Drain the session event stream. Manual iteration — Hermes does not
+  // support `for await...of` over NitroModules async iterables.
+  const consumeEvents = useCallback(
+    async (session: VoiceSession) => {
+      const iterator = session.events[Symbol.asyncIterator]();
+      eventsRef.current = iterator;
+      try {
+        for (;;) {
+          const step = await iterator.next();
+          if (step.done) break;
+          const event = step.value;
+          switch (event.type) {
+            case 'userTranscribed':
+              if (event.isFinal) appendMessage('user', event.text);
+              break;
+            case 'agentResponse':
+              appendMessage('assistant', event.text);
+              break;
+            case 'agentStateChanged':
+              applyAgentState(event.state);
+              break;
+            case 'error':
+              console.error('[VoicePipeline] Voice turn error:', event.message);
+              setStatus(`Error: ${event.message}`);
+              setAudioLevel(0);
+              break;
+            default:
+              break;
+          }
+        }
+      } catch (error) {
+        // The stream died mid-session. Without this the screen keeps showing a
+        // live agent ("Listening...", stop button armed) over a dead pipeline.
+        console.error('[VoicePipeline] Voice event stream failed:', error);
+        setStatus(
+          `Error: ${error instanceof Error ? error.message : String(error)}`
+        );
+        setAudioLevel(0);
+        setIsActive(false);
+        await cleanupVoiceSession();
+      }
+    },
+    [appendMessage, applyAgentState, cleanupVoiceSession]
+  );
 
-  // Start voice session: compose the pipeline against the already-loaded
-  // LLM/STT/TTS models, then let the mic driver own capture -> turn ->
-  // playback for as long as the session stays active.
+  // Start voice session: the SDK composes the pipeline from the model ids and
+  // owns capture -> turn -> playback for as long as the session stays open.
   const startVoiceAgent = async () => {
     if (!modelService.isVoiceAgentReady) return;
 
@@ -106,20 +145,23 @@ export const VoicePipelineScreen: React.FC = () => {
     setStatus('Starting...');
 
     try {
-      await RunAnywhere.initializeVoiceAgentWithLoadedModels();
-
-      const driver = new VoiceAgentMicDriver();
-      micDriverRef.current = driver;
-      const started = await driver.start({
-        onTurn: handleTurn,
-        onPhase: handlePhase,
-        onError: handleTurnError,
+      const session = await RunAnywhere.voice.createSession({
+        stt: { id: MODEL_IDS.stt },
+        llm: { id: MODEL_IDS.llm },
+        tts: { id: MODEL_IDS.tts },
       });
+      sessionRef.current = session;
+      consumeEvents(session).catch(() => {});
+      await session.start();
 
-      if (!started) {
-        micDriverRef.current = null;
-        await cleanupVoiceSession();
-        setIsActive(false);
+      setStatus('Listening...');
+      setAudioLevel(0.3);
+    } catch (error) {
+      console.error('[VoicePipeline] Voice agent error:', error);
+      await cleanupVoiceSession();
+      setIsActive(false);
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes('permission')) {
         setStatus('Ready');
         Alert.alert(
           'Microphone needed',
@@ -127,14 +169,7 @@ export const VoicePipelineScreen: React.FC = () => {
         );
         return;
       }
-
-      setStatus('Listening...');
-      setAudioLevel(0.3);
-    } catch (error) {
-      console.error('[VoicePipeline] Voice agent error:', error);
-      setStatus(`Error: ${error}`);
-      setIsActive(false);
-      await cleanupVoiceSession();
+      setStatus(`Error: ${message}`);
     }
   };
 

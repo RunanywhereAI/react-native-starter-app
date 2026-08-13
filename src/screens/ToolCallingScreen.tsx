@@ -11,10 +11,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { RunAnywhere } from '@runanywhere/core';
-import type {
-  ToolCallingResult,
-} from '@runanywhere/proto-ts/tool_calling';
+import { generateWithTools } from '@runanywhere/core';
+import type { ToolCallingResult } from '@runanywhere/core';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget } from '../components';
@@ -54,7 +52,6 @@ export const ToolCallingScreen: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [toolsRegistered, setToolsRegistered] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
-  const logIdRef = useRef(0);
 
   // Auto-scroll on new logs
   useEffect(() => {
@@ -95,12 +92,12 @@ export const ToolCallingScreen: React.FC = () => {
     addLog('prompt', 'User Prompt', prompt);
 
     try {
-      const result: ToolCallingResult = await RunAnywhere.generateWithTools(prompt, {
+      // `temperature`/`maxTokens` were deleted from ToolCallingOptions — the
+      // commons run loop keeps its own greedy generation defaults.
+      const result: ToolCallingResult = await generateWithTools(prompt, {
         tools: DEMO_TOOLS,
         maxToolCalls: 3,
         autoExecute: true,
-        temperature: 0.7,
-        maxTokens: 512,
       });
 
       // Log tool calls (ToolCall.name / .argumentsJson, ToolResult.name / .resultJson
@@ -118,8 +115,8 @@ export const ToolCallingScreen: React.FC = () => {
           if (tr) {
             addLog(
               'tool_result',
-              `Result: ${tr.name} (${tr.success ? 'success' : 'failed'})`,
-              tr.success ? formatJson(tr.resultJson) : tr.error,
+              `Result: ${tr.name} (${tr.isError ? 'failed' : 'success'})`,
+              tr.isError ? tr.error : formatJson(tr.resultJson),
             );
           }
         }
