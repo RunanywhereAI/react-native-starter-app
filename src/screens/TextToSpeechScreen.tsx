@@ -9,11 +9,8 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { RunAnywhere } from '@runanywhere/core';
+import type { SpeechHandle } from '@runanywhere/core';
 import { AppColors } from '../theme';
-
-// `SpeechHandle` (the return type of tts.speak) is not re-exported by name
-// from '@runanywhere/core', so it is named structurally here.
-type SpeechHandle = ReturnType<typeof RunAnywhere.tts.speak>;
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget } from '../components';
 
