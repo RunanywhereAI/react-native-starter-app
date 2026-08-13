@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import { Platform } from 'react-native';
 import { RunAnywhere } from '@runanywhere/core';
 import {
   ModelCategory,
@@ -362,6 +363,51 @@ export const registerDefaultModels = async () => {
     category: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
     memoryRequirementBytes: 600_000_000,
   });
+
+  // VLM Model - LiquidAI LFM2.5-VL 3B Q4_K_M (~2.3GB total, iOS + Android)
+  // Multi-file download: main Q4_K_M weights + Q8_0 mmproj vision projector.
+  // Same gguf+mmproj pairing the SmolVLM bundle above ships pre-archived, just
+  // fetched straight from the upstream repo instead of a tar.gz mirror.
+  await RunAnywhere.models.register({
+    id: 'lfm2.5-vl-3b-q4_k_m',
+    name: 'LFM2.5-VL 3B Q4_K_M',
+    files: [
+      {
+        url: 'https://huggingface.co/LiquidAI/LFM2.5-VL-3B-GGUF/resolve/main/LFM2.5-VL-3B-Q4_K_M.gguf',
+        filename: 'LFM2.5-VL-3B-Q4_K_M.gguf',
+        required: true,
+      },
+      {
+        url: 'https://huggingface.co/LiquidAI/LFM2.5-VL-3B-GGUF/resolve/main/mmproj-LFM2.5-VL-3B-Q8_0.gguf',
+        filename: 'mmproj-LFM2.5-VL-3B-Q8_0.gguf',
+        required: true,
+      },
+    ],
+    framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
+    category: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
+    // Sum of file Content-Lengths: main (1,674,454,240 B) + mmproj (583,109,120 B).
+    memoryRequirementBytes: 2_257_563_360,
+  });
+
+  // VLM Model - LiquidAI LFM2.5-VL 3B MLX 4-bit (~2.4GB repo, Apple only).
+  // MLX is an iOS-only, physical-device-only backend (see App.tsx), so the entry
+  // is registered only where it can actually load rather than sitting unloadable
+  // in the Android catalog.
+  // A PLAIN repo ref, not a `/4bit` subfolder ref like `hf.co/LiquidAI/...MLX/4bit`
+  // — LiquidAI publishes one precision per repo here, so the 4-bit safetensors sit
+  // at the repo ROOT alongside config.json.
+  if (Platform.OS === 'ios') {
+    await RunAnywhere.models.register({
+      id: 'mlx-lfm2.5-vl-3b-4bit',
+      name: 'MLX LFM2.5-VL 3B 4bit',
+      url: 'https://huggingface.co/LiquidAI/LFM2.5-VL-3B-MLX-4bit',
+      framework: InferenceFramework.INFERENCE_FRAMEWORK_MLX,
+      category: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
+      // 2,388,273,220 B for the whole repo (2.37 GB of that is
+      // model.safetensors) plus KV cache and Metal runtime overhead.
+      memoryRequirementBytes: 2_600_000_000,
+    });
+  }
 
   // STT Model - Sherpa Whisper Tiny English
   // tar.gz served by the Sherpa engine plugin (ONNX.register() installs it).
