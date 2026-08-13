@@ -3,20 +3,26 @@ import { RunAnywhere } from '@runanywhere/core';
 import {
   ModelCategory,
   InferenceFramework,
-  ModelArtifactType,
-  ModelLoadRequest,
-  ModelUnloadRequest,
+  ModelRegistryStatus,
   type ModelInfo,
 } from '@runanywhere/proto-ts/model_types';
 
 // Model IDs - matching sample app model registry
 // See: runanywhere-sdks/examples/react-native/RunAnywhereAI/src/services/ModelCatalogBootstrap.ts
-const MODEL_IDS = {
+export const MODEL_IDS = {
   llm: 'lfm2-350m-q8_0', // LiquidAI LFM2 - fast and efficient
   vlm: 'smolvlm-500m-instruct-q8_0', // SmolVLM - ultra-light vision model
   stt: 'sherpa-onnx-whisper-tiny.en',
   tts: 'vits-piper-en_US-lessac-medium',
 } as const;
+
+/**
+ * `ModelInfo.isDownloaded` was deleted from the IDL; `registryStatus` is the
+ * single downloaded-ness signal now.
+ */
+const isDownloaded = (model: ModelInfo): boolean =>
+  model.registryStatus === ModelRegistryStatus.MODEL_REGISTRY_STATUS_DOWNLOADED ||
+  model.registryStatus === ModelRegistryStatus.MODEL_REGISTRY_STATUS_LOADED;
 
 interface ModelServiceState {
   // Download state
@@ -52,6 +58,35 @@ interface ModelServiceState {
   downloadAndLoadAllModels: () => Promise<void>;
   unloadAllModels: () => Promise<void>;
 }
+
+/**
+ * Drive `RunAnywhere.models.download` to completion, forwarding the
+ * commons-owned percent to the UI.
+ *
+ * Manual iteration — Hermes does not support `for await...of` over
+ * NitroModules async iterables.
+ */
+const downloadWithProgress = async (
+  modelId: string,
+  onPercent: (percent: number) => void
+): Promise<void> => {
+  const iterator = RunAnywhere.models.download(modelId)[Symbol.asyncIterator]();
+  try {
+    for (;;) {
+      const step = await iterator.next();
+      if (step.done) break;
+      const event = step.value;
+      if (event.type === 'failed') {
+        throw event.error;
+      }
+      if (event.type === 'progress' && event.percent !== undefined) {
+        onPercent(event.percent);
+      }
+    }
+  } finally {
+    await iterator.return?.();
+  }
+};
 
 const ModelServiceContext = createContext<ModelServiceState | null>(null);
 
@@ -97,10 +132,7 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
   // bootstrap (registerDefaultModels below) so this should always resolve
   // to a catalog entry once the SDK has initialized.
   const getRegisteredModel = useCallback(
-    async (modelId: string): Promise<ModelInfo | null> => {
-      const result = await RunAnywhere.getModel({ modelId });
-      return result.found ? (result.model ?? null) : null;
-    },
+    (modelId: string): Promise<ModelInfo | null> => RunAnywhere.models.get(modelId),
     []
   );
 
@@ -115,27 +147,20 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
         return;
       }
 
-      if (!model.isDownloaded) {
+      if (!isDownloaded(model)) {
         setIsLLMDownloading(true);
         setLLMDownloadProgress(0);
 
-        await RunAnywhere.downloadModel(model, (progress) => {
-          setLLMDownloadProgress(progress.overallProgress * 100);
-        });
+        await downloadWithProgress(MODEL_IDS.llm, setLLMDownloadProgress);
 
         setIsLLMDownloading(false);
       }
 
       // Load the model (canonical id-based lifecycle — the native registry
-      // resolves the on-disk artifact path internally).
+      // resolves the on-disk artifact path internally, and throws on failure).
       setIsLLMLoading(true);
-      const result = await RunAnywhere.loadModel(
-        ModelLoadRequest.fromPartial({
-          modelId: MODEL_IDS.llm,
-          category: ModelCategory.MODEL_CATEGORY_LANGUAGE,
-        })
-      );
-      setIsLLMLoaded(result.success);
+      await RunAnywhere.models.load(MODEL_IDS.llm);
+      setIsLLMLoaded(true);
       setIsLLMLoading(false);
     } catch (error) {
       console.error('LLM download/load error:', error);
@@ -155,25 +180,18 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
         return;
       }
 
-      if (!model.isDownloaded) {
+      if (!isDownloaded(model)) {
         setIsVLMDownloading(true);
         setVLMDownloadProgress(0);
 
-        await RunAnywhere.downloadModel(model, (progress) => {
-          setVLMDownloadProgress(progress.overallProgress * 100);
-        });
+        await downloadWithProgress(MODEL_IDS.vlm, setVLMDownloadProgress);
 
         setIsVLMDownloading(false);
       }
 
       setIsVLMLoading(true);
-      const result = await RunAnywhere.loadModel(
-        ModelLoadRequest.fromPartial({
-          modelId: MODEL_IDS.vlm,
-          category: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
-        })
-      );
-      setIsVLMLoaded(result.success);
+      await RunAnywhere.models.load(MODEL_IDS.vlm);
+      setIsVLMLoaded(true);
       setIsVLMLoading(false);
     } catch (error) {
       console.error('VLM download/load error:', error);
@@ -193,25 +211,18 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
         return;
       }
 
-      if (!model.isDownloaded) {
+      if (!isDownloaded(model)) {
         setIsSTTDownloading(true);
         setSTTDownloadProgress(0);
 
-        await RunAnywhere.downloadModel(model, (progress) => {
-          setSTTDownloadProgress(progress.overallProgress * 100);
-        });
+        await downloadWithProgress(MODEL_IDS.stt, setSTTDownloadProgress);
 
         setIsSTTDownloading(false);
       }
 
       setIsSTTLoading(true);
-      const result = await RunAnywhere.loadModel(
-        ModelLoadRequest.fromPartial({
-          modelId: MODEL_IDS.stt,
-          category: ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION,
-        })
-      );
-      setIsSTTLoaded(result.success);
+      await RunAnywhere.models.load(MODEL_IDS.stt);
+      setIsSTTLoaded(true);
       setIsSTTLoading(false);
     } catch (error) {
       console.error('STT download/load error:', error);
@@ -231,25 +242,18 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
         return;
       }
 
-      if (!model.isDownloaded) {
+      if (!isDownloaded(model)) {
         setIsTTSDownloading(true);
         setTTSDownloadProgress(0);
 
-        await RunAnywhere.downloadModel(model, (progress) => {
-          setTTSDownloadProgress(progress.overallProgress * 100);
-        });
+        await downloadWithProgress(MODEL_IDS.tts, setTTSDownloadProgress);
 
         setIsTTSDownloading(false);
       }
 
       setIsTTSLoading(true);
-      const result = await RunAnywhere.loadModel(
-        ModelLoadRequest.fromPartial({
-          modelId: MODEL_IDS.tts,
-          category: ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS,
-        })
-      );
-      setIsTTSLoaded(result.success);
+      await RunAnywhere.models.load(MODEL_IDS.tts);
+      setIsTTSLoaded(true);
       setIsTTSLoading(false);
     } catch (error) {
       console.error('TTS download/load error:', error);
@@ -270,29 +274,13 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
   // Unload all models
   const unloadAllModels = useCallback(async () => {
     try {
-      await RunAnywhere.unloadModel(
-        ModelUnloadRequest.fromPartial({
-          category: ModelCategory.MODEL_CATEGORY_LANGUAGE,
-          unloadAll: true,
-        })
+      await RunAnywhere.models.unloadAll(ModelCategory.MODEL_CATEGORY_LANGUAGE);
+      await RunAnywhere.models.unloadAll(ModelCategory.MODEL_CATEGORY_MULTIMODAL);
+      await RunAnywhere.models.unloadAll(
+        ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION
       );
-      await RunAnywhere.unloadModel(
-        ModelUnloadRequest.fromPartial({
-          category: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
-          unloadAll: true,
-        })
-      );
-      await RunAnywhere.unloadModel(
-        ModelUnloadRequest.fromPartial({
-          category: ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION,
-          unloadAll: true,
-        })
-      );
-      await RunAnywhere.unloadModel(
-        ModelUnloadRequest.fromPartial({
-          category: ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS,
-          unloadAll: true,
-        })
+      await RunAnywhere.models.unloadAll(
+        ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS
       );
       setIsLLMLoaded(false);
       setIsVLMLoaded(false);
@@ -343,67 +331,69 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
  */
 export const registerDefaultModels = async () => {
   // LLM Model - LiquidAI LFM2 350M (fast, efficient, great for mobile)
-  await RunAnywhere.registerModel({
+  await RunAnywhere.models.register({
     id: MODEL_IDS.llm,
     name: 'LiquidAI LFM2 350M Q8_0',
     url: 'https://huggingface.co/LiquidAI/LFM2-350M-GGUF/resolve/main/LFM2-350M-Q8_0.gguf',
     framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
-    memoryRequirement: 400_000_000,
+    memoryRequirementBytes: 400_000_000,
   });
 
   // Also add SmolLM2 as alternative smaller model
-  await RunAnywhere.registerModel({
+  await RunAnywhere.models.register({
     id: 'smollm2-360m-q8_0',
     name: 'SmolLM2 360M Q8_0',
     url: 'https://huggingface.co/prithivMLmods/SmolLM2-360M-GGUF/resolve/main/SmolLM2-360M.Q8_0.gguf',
     framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
-    memoryRequirement: 500_000_000,
+    memoryRequirementBytes: 500_000_000,
   });
 
   // VLM Model - SmolVLM 500M (ultra-lightweight vision-language model, ~600MB)
   // Single tar.gz bundle (weights + mmproj) served by the RunAnywhere release
   // mirror. Runs on the LlamaCPP backend under the MULTIMODAL category.
-  await RunAnywhere.registerModel({
+  // `archiveUrl` replaces the removed `artifactType` knob — the SDK infers the
+  // archive type from the url.
+  await RunAnywhere.models.register({
     id: MODEL_IDS.vlm,
     name: 'SmolVLM 500M Instruct',
-    url: 'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-vlm-models-v1/smolvlm-500m-instruct-q8_0.tar.gz',
+    archiveUrl:
+      'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-vlm-models-v1/smolvlm-500m-instruct-q8_0.tar.gz',
     framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
-    modality: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
-    artifactType: ModelArtifactType.MODEL_ARTIFACT_TYPE_TAR_GZ_ARCHIVE,
-    memoryRequirement: 600_000_000,
+    category: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
+    memoryRequirementBytes: 600_000_000,
   });
 
   // STT Model - Sherpa Whisper Tiny English
   // tar.gz served by the Sherpa engine plugin (ONNX.register() installs it).
-  await RunAnywhere.registerModel({
+  await RunAnywhere.models.register({
     id: MODEL_IDS.stt,
     name: 'Sherpa Whisper Tiny (ONNX)',
-    url: 'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/sherpa-onnx-whisper-tiny.en.tar.gz',
+    archiveUrl:
+      'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/sherpa-onnx-whisper-tiny.en.tar.gz',
     framework: InferenceFramework.INFERENCE_FRAMEWORK_SHERPA,
-    modality: ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION,
-    artifactType: ModelArtifactType.MODEL_ARTIFACT_TYPE_TAR_GZ_ARCHIVE,
-    memoryRequirement: 75_000_000,
+    category: ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION,
+    memoryRequirementBytes: 75_000_000,
   });
 
   // TTS Model - Piper TTS (US English - Medium quality)
-  await RunAnywhere.registerModel({
+  await RunAnywhere.models.register({
     id: MODEL_IDS.tts,
     name: 'Piper TTS (US English - Medium)',
-    url: 'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/vits-piper-en_US-lessac-medium.tar.gz',
+    archiveUrl:
+      'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/vits-piper-en_US-lessac-medium.tar.gz',
     framework: InferenceFramework.INFERENCE_FRAMEWORK_SHERPA,
-    modality: ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS,
-    artifactType: ModelArtifactType.MODEL_ARTIFACT_TYPE_TAR_GZ_ARCHIVE,
-    memoryRequirement: 65_000_000,
+    category: ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS,
+    memoryRequirementBytes: 65_000_000,
   });
 
   // VAD Model - Silero VAD (voice activity detection for the voice pipeline).
   // Small .onnx served directly from the upstream repo; runs on the ONNX backend.
-  await RunAnywhere.registerModel({
+  await RunAnywhere.models.register({
     id: 'silero-vad',
     name: 'Silero VAD',
     url: 'https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx',
     framework: InferenceFramework.INFERENCE_FRAMEWORK_ONNX,
-    modality: ModelCategory.MODEL_CATEGORY_VOICE_ACTIVITY_DETECTION,
-    memoryRequirement: 2_327_524,
+    category: ModelCategory.MODEL_CATEGORY_VOICE_ACTIVITY_DETECTION,
+    memoryRequirementBytes: 2_327_524,
   });
 };

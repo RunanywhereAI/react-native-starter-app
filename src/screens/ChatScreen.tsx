@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { RunAnywhere } from '@runanywhere/core';
-import { LLMGenerationOptions } from '@runanywhere/proto-ts/llm_options';
+import type { GenerationEvent, GenerationResult } from '@runanywhere/core';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ChatMessageBubble, ChatMessage, ModelLoaderWidget } from '../components';
@@ -25,6 +25,8 @@ export const ChatScreen: React.FC = () => {
   const flatListRef = useRef<FlatList>(null);
   const responseRef = useRef(''); // Track response for closure
   const wasCancelledRef = useRef(false);
+  // Closing the stream iterator is what cancels the native generation now.
+  const streamRef = useRef<AsyncIterator<GenerationEvent> | null>(null);
 
   useEffect(() => {
     // Scroll to bottom when messages change
@@ -53,34 +55,41 @@ export const ChatScreen: React.FC = () => {
     wasCancelledRef.current = false;
 
     try {
-      // Canonical cross-SDK streaming path: generateStream() returns an
-      // AsyncIterable<LLMStreamEvent>; aggregateStream() drives it to
-      // completion (manual iterator.next() loop under the hood — Hermes does
-      // not support `for await...of` over NitroModules async iterables) and
-      // reports the running transcript via onToken for live UI updates.
-      const eventStream = RunAnywhere.generateStream(
-        text,
-        LLMGenerationOptions.fromPartial({
-          maxTokens: 256,
-          temperature: 0.8,
-        })
-      );
-      const finalResult = await RunAnywhere.aggregateStream(
-        text,
-        eventStream,
-        (transcript) => {
-          responseRef.current = transcript;
-          setCurrentResponse(transcript);
-        }
-      );
+      // Canonical cross-SDK streaming path: RunAnywhere.llm.generateStream()
+      // returns an AsyncIterable<GenerationEvent>. Manual iterator.next()
+      // loop — Hermes does not support `for await...of` over NitroModules
+      // async iterables.
+      const iterator = RunAnywhere.llm
+        .generateStream(text, { maxOutputTokens: 256, temperature: 0.8 })
+        [Symbol.asyncIterator]();
+      streamRef.current = iterator;
 
-      const finalText = finalResult.text || responseRef.current;
+      let finalResult: GenerationResult | null = null;
+      try {
+        for (;;) {
+          const step = await iterator.next();
+          if (step.done) break;
+          const event = step.value;
+          if (event.type === 'token') {
+            responseRef.current += event.text;
+            setCurrentResponse(responseRef.current);
+          } else if (event.type === 'completed') {
+            finalResult = event.result;
+          } else if (event.type === 'failed') {
+            throw event.error;
+          }
+        }
+      } finally {
+        streamRef.current = null;
+      }
+
+      const finalText = finalResult?.text || responseRef.current;
       const assistantMessage: ChatMessage = {
         text: finalText,
         isUser: false,
         timestamp: new Date(),
-        tokensPerSecond: finalResult.tokensPerSecond,
-        totalTokens: finalResult.totalTokens,
+        tokensPerSecond: finalResult?.tokensPerSecond,
+        totalTokens: finalResult?.outputTokens,
         wasCancelled: wasCancelledRef.current,
       };
       setMessages(prev => [...prev, assistantMessage]);
@@ -103,7 +112,8 @@ export const ChatScreen: React.FC = () => {
 
   const handleStop = () => {
     wasCancelledRef.current = true;
-    void RunAnywhere.cancelGeneration();
+    // The stream's own cancel hook calls into native cancellation.
+    void streamRef.current?.return?.(undefined);
   };
 
   const handleClearChat = () => {

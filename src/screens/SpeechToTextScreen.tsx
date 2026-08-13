@@ -11,9 +11,8 @@ import {
   PermissionsAndroid,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { RunAnywhere } from '@runanywhere/core';
-import { STTLanguage } from '@runanywhere/proto-ts/stt_options';
-import { AudioFormat, ModelCategory } from '@runanywhere/proto-ts/model_types';
+import { RunAnywhere, AudioInputs } from '@runanywhere/core';
+import { ModelCategory } from '@runanywhere/proto-ts/model_types';
 import { AppColors } from '../theme';
 import { useModelService } from '../services/ModelService';
 import { ModelLoaderWidget, AudioVisualizer } from '../components';
@@ -140,22 +139,22 @@ export const SpeechToTextScreen: React.FC = () => {
       }
 
       // Check if STT model is loaded
-      const modelInfo = await RunAnywhere.modelInfoForCategory(
+      const modelInfo = await RunAnywhere.models.loaded(
         ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION
       );
       if (!modelInfo) {
         throw new Error('STT model not loaded. Please download and load the model first.');
       }
 
-      // Transcribe using the raw WAV bytes recorded by the native module
-      // (transcribe() takes a Uint8Array, not base64).
+      // Transcribe using the raw WAV bytes recorded by the native module.
+      // `AudioInputs.wav` wraps a complete WAV blob (header included); the
+      // language is a BCP-47 tag now (the STTLanguage enum was deleted).
       console.warn('[STT] Starting transcription...');
       const audioBytes = base64ToBytes(audioBase64);
-      const transcribeResult = await RunAnywhere.transcribe(audioBytes, {
-        sampleRate: 16000,
-        language: STTLanguage.STT_LANGUAGE_EN,
-        audioFormat: AudioFormat.AUDIO_FORMAT_WAV,
-      });
+      const transcribeResult = await RunAnywhere.stt.transcribe(
+        AudioInputs.wav(audioBytes, 16000),
+        { language: 'en' }
+      );
 
       console.warn('[STT] Transcription result:', transcribeResult);
 

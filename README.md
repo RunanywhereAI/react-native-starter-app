@@ -66,7 +66,7 @@ This app uses three RunAnywhere packages:
 # Clone and install
 git clone https://github.com/RunanywhereAI/react-native-starter-app.git
 cd react-native-starter-app
-npm install
+yarn install
 
 # iOS (requires pod install first)
 cd ios && pod install && cd ..
@@ -79,6 +79,9 @@ npx react-native run-android
 ### Prerequisites
 
 - **Node.js** 18 or higher
+- **Yarn** (Berry, e.g. via Corepack) — `yarn.lock` is the lockfile of record. Do not
+  run `npm install` in this project: npm rewrites `yarn.lock` into the incompatible
+  Yarn Classic format.
 - **React Native CLI** development environment ([setup guide](https://reactnative.dev/docs/environment-setup))
 - **iOS:** Xcode 14+, CocoaPods, macOS
 - **Android:** 
@@ -99,7 +102,7 @@ npx react-native run-android
 
 2. **Install dependencies**
    ```bash
-   npm install
+   yarn install
    ```
    > **Note:** This runs `patch-package` automatically via postinstall to apply necessary compatibility fixes.
 
@@ -335,7 +338,7 @@ The second run will succeed as codegen completes.
 
 ### Build errors
 - Clear cache: `cd android && ./gradlew clean` or `cd ios && rm -rf Pods Podfile.lock`
-- Reinstall dependencies: `rm -rf node_modules && npm install`
+- Reinstall dependencies: `rm -rf node_modules && yarn install`
 - For iOS: `cd ios && pod install --repo-update`
 - For Android: Delete `android/app/build` and `android/.gradle` folders, then rebuild
 
