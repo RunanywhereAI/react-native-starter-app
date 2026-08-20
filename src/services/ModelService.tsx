@@ -11,7 +11,7 @@ import {
 // Model IDs - matching sample app model registry
 // See: runanywhere-sdks/examples/react-native/RunAnywhereAI/src/services/ModelCatalogBootstrap.ts
 export const MODEL_IDS = {
-  llm: 'lfm2-350m-q8_0', // LiquidAI LFM2 - fast and efficient
+  llm: 'qwen3.5-0.8b-q4_k_m', // Qwen3.5 - smallest current-generation chat model
   vlm: 'smolvlm-500m-instruct-q8_0', // SmolVLM - ultra-light vision model
   stt: 'sherpa-onnx-whisper-tiny.en',
   tts: 'vits-piper-en_US-lessac-medium',
@@ -334,22 +334,22 @@ export const ModelServiceProvider: React.FC<ModelServiceProviderProps> = ({ chil
  * runanywhere-sdks/examples/react-native/RunAnywhereAI/src/services/ModelCatalogBootstrap.ts
  */
 export const registerDefaultModels = async () => {
-  // LLM Model - LiquidAI LFM2 350M (fast, efficient, great for mobile)
+  // LLM Model - Qwen3.5 0.8B, the smallest current-generation chat model.
   await RunAnywhere.models.register({
     id: MODEL_IDS.llm,
-    name: 'LiquidAI LFM2 350M Q8_0',
-    url: 'https://huggingface.co/LiquidAI/LFM2-350M-GGUF/resolve/main/LFM2-350M-Q8_0.gguf',
+    name: 'Qwen3.5 0.8B Q4_K_M',
+    url: 'https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf',
     framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
-    memoryRequirementBytes: 400_000_000,
+    memoryRequirementBytes: 900_000_000,
   });
 
-  // Also add SmolLM2 as alternative smaller model
+  // A smaller alternative for low-memory devices.
   await RunAnywhere.models.register({
-    id: 'smollm2-360m-q8_0',
-    name: 'SmolLM2 360M Q8_0',
-    url: 'https://huggingface.co/prithivMLmods/SmolLM2-360M-GGUF/resolve/main/SmolLM2-360M.Q8_0.gguf',
+    id: 'lfm2.5-230m-q4_k_m',
+    name: 'LiquidAI LFM2.5 230M Q4_K_M',
+    url: 'https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF/resolve/main/LFM2.5-230M-Q4_K_M.gguf',
     framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
-    memoryRequirementBytes: 500_000_000,
+    memoryRequirementBytes: 190_000_000,
   });
 
   // VLM Model - SmolVLM 500M (ultra-lightweight vision-language model, ~600MB)
