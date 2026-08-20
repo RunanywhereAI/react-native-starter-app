@@ -11,6 +11,11 @@ import { AppColors } from '../theme';
 interface ModelLoaderWidgetProps {
   title: string;
   subtitle: string;
+  /**
+   * "Qwen3.5 0.8B Q4_K_M · Alibaba". Optional so a caller with no single model
+   * behind it (the voice pipeline loads three) can leave it off.
+   */
+  modelCredit?: string;
   icon: string;
   accentColor: string;
   isDownloading: boolean;
@@ -22,6 +27,7 @@ interface ModelLoaderWidgetProps {
 export const ModelLoaderWidget: React.FC<ModelLoaderWidgetProps> = ({
   title,
   subtitle,
+  modelCredit,
   accentColor,
   isDownloading,
   isLoading,
@@ -46,6 +52,9 @@ export const ModelLoaderWidget: React.FC<ModelLoaderWidgetProps> = ({
 
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.subtitle}>{subtitle}</Text>
+        {modelCredit ? (
+          <Text style={[styles.modelCredit, { color: accentColor }]}>{modelCredit}</Text>
+        ) : null}
 
         {(isDownloading || isLoading) && (
           <View style={styles.loadingContainer}>
@@ -125,8 +134,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: AppColors.textSecondary,
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: 8,
     lineHeight: 20,
+  },
+  modelCredit: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 24,
   },
   loadingContainer: {
     alignItems: 'center',

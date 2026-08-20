@@ -11,7 +11,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { RunAnywhere } from '@runanywhere/core';
 import type { SpeechHandle } from '@runanywhere/core';
 import { AppColors } from '../theme';
-import { useModelService } from '../services/ModelService';
+import { useModelService, MODEL_CREDITS } from '../services/ModelService';
 import { ModelLoaderWidget } from '../components';
 
 const SAMPLE_TEXTS = [
@@ -74,6 +74,7 @@ export const TextToSpeechScreen: React.FC = () => {
   if (!modelService.isTTSLoaded) {
     return (
       <ModelLoaderWidget
+        modelCredit={MODEL_CREDITS.tts}
         title="TTS Voice Required"
         subtitle="Download and load the voice synthesis model"
         icon="volume"

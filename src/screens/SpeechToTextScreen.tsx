@@ -14,7 +14,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { RunAnywhere, AudioInputs } from '@runanywhere/core';
 import { ModelCategory } from '@runanywhere/proto-ts/model_types';
 import { AppColors } from '../theme';
-import { useModelService } from '../services/ModelService';
+import { useModelService, MODEL_CREDITS } from '../services/ModelService';
 import { ModelLoaderWidget, AudioVisualizer } from '../components';
 
 // Native Audio Module - records in WAV format (16kHz mono) optimal for Whisper STT
@@ -191,6 +191,7 @@ export const SpeechToTextScreen: React.FC = () => {
   if (!modelService.isSTTLoaded) {
     return (
       <ModelLoaderWidget
+        modelCredit={MODEL_CREDITS.stt}
         title="STT Model Required"
         subtitle="Download and load the speech recognition model"
         icon="mic"

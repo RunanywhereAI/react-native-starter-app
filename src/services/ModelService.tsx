@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
+
+import { modelCredit } from './modelOrg';
 import { RunAnywhere } from '@runanywhere/core';
 import {
   ModelCategory,
@@ -15,6 +17,26 @@ export const MODEL_IDS = {
   vlm: 'smolvlm-500m-instruct-q8_0', // SmolVLM - ultra-light vision model
   stt: 'sherpa-onnx-whisper-tiny.en',
   tts: 'vits-piper-en_US-lessac-medium',
+} as const;
+
+/** Display names, kept beside the ids they belong to. */
+export const MODEL_NAMES = {
+  llm: 'Qwen3.5 0.8B Q4_K_M',
+  vlm: 'SmolVLM 500M Instruct',
+  stt: 'Sherpa Whisper Tiny (ONNX)',
+  tts: 'Piper TTS (US English - Medium)',
+} as const;
+
+/**
+ * "Qwen3.5 0.8B Q4_K_M · Alibaba", for the loader screens. A starter that only
+ * says "the language model" leaves the reader with no idea what is about to be
+ * downloaded or who published it.
+ */
+export const MODEL_CREDITS = {
+  llm: modelCredit(MODEL_IDS.llm, MODEL_NAMES.llm),
+  vlm: modelCredit(MODEL_IDS.vlm, MODEL_NAMES.vlm),
+  stt: modelCredit(MODEL_IDS.stt, MODEL_NAMES.stt),
+  tts: modelCredit(MODEL_IDS.tts, MODEL_NAMES.tts),
 } as const;
 
 /**
