@@ -1,440 +1,304 @@
-# RunAnywhere React Native Starter App
+# RunAnywhere AI for React Native
 
-A comprehensive starter app demonstrating the capabilities of the [RunAnywhere SDK](https://www.npmjs.com/org/runanywhere) - a privacy-first, on-device AI SDK for React Native.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/RunanywhereAI/runanywhere-sdks/main/docs/logo.svg" alt="RunAnywhere" width="120"/>
+</p>
 
-![RunAnywhere](https://img.shields.io/badge/RunAnywhere-0.16.10-00D9FF)
-![React Native](https://img.shields.io/badge/React%20Native-0.76.5-61DAFB)
-![Platforms](https://img.shields.io/badge/Platforms-iOS%20%7C%20Android-green)
+<p align="center">
+  <img src="https://img.shields.io/badge/React%20Native-0.85-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React Native 0.85" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/iOS-17.5%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="iOS 17.5+" />
+  <img src="https://img.shields.io/badge/Android-arm64-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android arm64" />
+  <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT" />
+</p>
 
-## ✨ Features
+A starter app for the RunAnywhere on-device AI SDK, written in TypeScript.
 
-This starter app showcases the core capabilities of the RunAnywhere SDK:
+Six screens, one per feature: chat, vision, tool calling, speech to text, text to speech,
+and a voice agent. Inference runs locally through the SDK's C++ core, so apart from
+downloading the model files there is no server involved. Copy a screen, point it at your own
+model, and you have the shape of a real app.
 
-### 💬 Chat (LLM Text Generation)
-- Streaming text generation with token-by-token output
-- Performance metrics (tokens/second, total tokens)
-- Cancel generation mid-stream
-- Suggested prompts for quick testing
-- Beautiful chat UI with message bubbles
+Every `@runanywhere/*` package is pinned to 0.20.19.
 
-### 👁 Vision (VLM Image Understanding)
-- On-device image description with a vision-language model (SmolVLM)
-- Streaming, token-by-token descriptions via `RunAnywhere.processImageStream`
-- Sample images plus custom image URL / local path input
-- Editable prompt and cancel mid-generation
+## What it demonstrates
 
-### 🛠 Tool Calling
-- LLM-driven function calling from natural language
-- Structured tool definitions and execution
+Six feature screens, each one wired to a single SDK entry point.
 
-### 🎤 Speech-to-Text (STT)
-- Real-time audio recording
-- On-device transcription using Whisper models
-- Audio level visualization
-- Transcription history
-- Privacy-first: all processing happens on device
+| Screen | What it does | SDK call |
+|--------|--------------|----------|
+| Chat | Streams a completion token by token, reports tokens/second, cancels mid-stream | `RunAnywhere.llm.generateStream` |
+| Vision | Describes an image picked from samples, a URL, or a local file path | `RunAnywhere.vlm.generateStream` |
+| Tool calling | Runs a prompt against three demo tools (weather, clock, calculator) and logs every call and result | `generateWithTools`, `RunAnywhere.llm.tools.register` |
+| Speech to text | Records 16 kHz mono WAV and transcribes it | `RunAnywhere.stt.transcribe` |
+| Text to speech | Synthesizes and plays text at an adjustable speech rate | `RunAnywhere.tts.speak` |
+| Voice pipeline | Listen, think, speak loop driven by the session event stream | `RunAnywhere.voice.createSession` |
 
-### 🔊 Text-to-Speech (TTS)
-- Neural voice synthesis with Piper TTS
-- Adjustable speech rate (0.5x - 2.0x)
-- Sample texts for quick testing
-- Audio playback controls
-- High-quality, natural-sounding voices
+The home screen is navigation plus a summary of the configured models.
 
-### ✨ Voice Pipeline (Voice Agent)
-- Full voice assistant experience
-- Seamless integration: Speak → Transcribe → Generate → Speak
-- Real-time status updates
-- Conversation history
-- Complete end-to-end voice interaction
+Two things do reach the network at runtime: the weather tool calls wttr.in, and the vision
+screen downloads an image if you give it a URL. Everything else works with the network off
+once the models are on disk.
 
-## 📦 SDK Packages Used
+## Requirements
 
-This app uses three RunAnywhere packages:
+- Node 18 or newer.
+- Yarn 3.6.1. `packageManager` is set in `package.json`, so Corepack picks the right version.
+  `yarn.lock` is the lockfile of record; running `npm install` rewrites it into the
+  incompatible Yarn Classic format.
+- iOS: macOS, a recent Xcode, CocoaPods. The deployment target is 17.5.
+- Android: Android Studio, JDK 17, compile and target SDK 36, build tools 36.0.0,
+  NDK 28.0.13004108. Minimum supported device is API 24.
+- A physical device. Models are slow on simulators, and the MLX and Hexagon NPU backends
+  only exist on real hardware.
 
-| Package | Purpose | NPM |
-|---------|---------|-----|
-| `@runanywhere/core` | Core SDK with infrastructure | [View on NPM](https://www.npmjs.com/package/@runanywhere/core) |
-| `@runanywhere/llamacpp` | LLM backend (LlamaCpp) | [View on NPM](https://www.npmjs.com/package/@runanywhere/llamacpp) |
-| `@runanywhere/onnx` | STT/TTS/VAD backend (ONNX) | [View on NPM](https://www.npmjs.com/package/@runanywhere/onnx) |
-
-## 🚀 Getting Started
-
-### Quick Start
+## Setup
 
 ```bash
-# Clone and install
 git clone https://github.com/RunanywhereAI/react-native-starter-app.git
 cd react-native-starter-app
 yarn install
+```
 
-# iOS (requires pod install first)
+Pods are not installed automatically (see platform notes), so install them yourself:
+
+```bash
 cd ios && pod install && cd ..
-npx react-native run-ios
-
-# Android (no additional setup needed)
-npx react-native run-android
 ```
 
-### Prerequisites
+Then start Metro in one terminal:
 
-- **Node.js** 18 or higher
-- **Yarn** (Berry, e.g. via Corepack) — `yarn.lock` is the lockfile of record. Do not
-  run `npm install` in this project: npm rewrites `yarn.lock` into the incompatible
-  Yarn Classic format.
-- **React Native CLI** development environment ([setup guide](https://reactnative.dev/docs/environment-setup))
-- **iOS:** Xcode 14+, CocoaPods, macOS
-- **Android:** 
-  - Android Studio
-  - JDK 17+
-  - Android SDK 36 (compileSdk)
-  - NDK 27.1.12297006 (install via Android Studio → SDK Manager → SDK Tools → NDK)
-  - Build Tools 36.0.0
-- **Physical device recommended** for best performance (AI models run slowly on simulators)
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/RunanywhereAI/react-native-starter-app.git
-   cd react-native-starter-app
-   ```
-
-2. **Install dependencies**
-   ```bash
-   yarn install
-   ```
-   > **Note:** This runs `patch-package` automatically via postinstall to apply necessary compatibility fixes.
-
-3. **iOS Setup**
-   ```bash
-   cd ios
-   pod install
-   cd ..
-   ```
-   > **Known Issue (RN 0.83):** The `@runanywhere` SDK packages use `podspecPath` in their React Native config, which the RN 0.83 CLI no longer allows. To work around this, `automaticPodsInstallation` is set to `false` in `react-native.config.js`. This means you **must always run `pod install` manually** (as shown above) before building for iOS. You may see warnings about `podspecPath` when running `run-ios` — these are harmless and can be ignored. This will be fixed in a future SDK release.
-
-4. **Android Setup** (verify your environment)
-   
-   No additional setup is needed if you have Android Studio installed with the required SDK components. To verify:
-   
-   ```bash
-   # Check that ANDROID_HOME is set (should point to your Android SDK)
-   echo $ANDROID_HOME
-   # Expected: /Users/<username>/Library/Android/sdk (macOS) or similar
-   
-   # Verify ADB is available
-   adb --version
-   
-   # Check installed NDK versions (need 27.1.12297006)
-   ls $ANDROID_HOME/ndk/
-   ```
-   
-   If NDK 27 is missing, install it via Android Studio:
-   - Open Android Studio → Settings → SDK Manager → SDK Tools tab
-   - Check "Show Package Details" → expand "NDK (Side by side)"
-   - Select version **27.1.12297006** and click Apply
-
-5. **Run the app**
-
-   **For iOS:**
-   ```bash
-   npx react-native run-ios
-   ```
-
-   **For Android:**
-   ```bash
-   npx react-native run-android
-   ```
-
-### Running with Two Terminals (Recommended)
-
-For better control and visibility of logs, run Metro bundler and the app build in separate terminals:
-
-**Terminal 1 - Start Metro Bundler:**
 ```bash
-cd react-native-starter-app
-npx react-native start
+yarn start
 ```
 
-Wait until you see "Dev server ready", then in a second terminal:
+and build in another:
 
-**Terminal 2 - Build & Run the App:**
 ```bash
-cd react-native-starter-app
-
-# For iOS
-npx react-native run-ios
-
-# For Android
-npx react-native run-android
+yarn ios
+# or
+yarn android
 ```
 
-> **Note:** The first Android build takes 5-10 minutes as it compiles native C++ code. Subsequent builds are much faster.
+The first Android build compiles native code and takes several minutes. Later builds are
+much faster.
 
-### Running on Physical Android Device
-
-When running on a physical Android device, you need to set up port forwarding for the Metro bundler:
+On a physical Android device, Metro is reached over USB:
 
 ```bash
-# Connect your device via USB and verify it's detected
-adb devices
-
-# Set up port forwarding (required for each USB session)
 adb reverse tcp:8081 tcp:8081
-
-# Start Metro bundler in one terminal
-npx react-native start
-
-# Run the app in another terminal
-npx react-native run-android
 ```
 
-> **Tip:** If you see "Could not connect to development server", run `adb reverse tcp:8081 tcp:8081` again.
+Run that again after every replug, or the app reports "Could not connect to development
+server".
 
-### iOS Permissions
+Type checking is the verification gate:
 
-The app requires microphone access. Permissions are already configured in `ios/RunAnywhereStarter/Info.plist`:
-
-```xml
-<key>NSMicrophoneUsageDescription</key>
-<string>This app needs microphone access for speech recognition and voice agent features</string>
-<key>NSSpeechRecognitionUsageDescription</key>
-<string>This app uses on-device speech recognition to transcribe your voice</string>
+```bash
+yarn typecheck
+yarn lint
 ```
 
-### Android Permissions
-
-Required permissions are configured in `android/app/src/main/AndroidManifest.xml`:
-
-```xml
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
-<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-```
-
-## 🏗️ Architecture
+## Project layout
 
 ```
 src/
-├── App.tsx                      # Main app entry, SDK initialization
-├── theme/
-│   └── colors.ts               # Color palette and theme
-├── services/
-│   └── ModelService.tsx        # Model management (download, load, state)
-├── components/
-│   ├── FeatureCard.tsx         # Home screen feature cards
-│   ├── ModelLoaderWidget.tsx   # Model download/load UI
-│   ├── ChatMessageBubble.tsx   # Chat message UI
-│   └── AudioVisualizer.tsx     # Audio level visualization
-├── screens/
-│   ├── HomeScreen.tsx          # Main navigation screen
-│   ├── ChatScreen.tsx          # LLM chat interface
-│   ├── SpeechToTextScreen.tsx  # STT interface
-│   ├── TextToSpeechScreen.tsx  # TTS interface
-│   └── VoicePipelineScreen.tsx # Voice agent interface
-└── navigation/
-    └── types.ts                # Navigation type definitions
+  App.tsx                       SDK init, backend registration, navigation stack
+  screens/                      one file per feature screen, plus HomeScreen
+  services/
+    ModelService.tsx            model catalog, download and load state, React context
+    VLMService.ts               vision model wrapper used by VisionScreen
+  components/                   FeatureCard, ModelLoaderWidget, ChatMessageBubble, AudioVisualizer
+  utils/
+    chatSampleTools.ts          the three demo tool definitions and their executors
+    mathParser.ts               expression evaluator behind the calculator tool
+  theme/colors.ts               dark palette (AppColors)
+  navigation/types.ts           stack param list
+  react-native-screens-mock.js  iOS shim, see platform notes
+
+ios/RunAnywhereStarter/NativeAudioModule.{swift,m}
+android/app/src/main/java/ai/runanywhere/starter/NativeAudioModule.kt
+                                WAV recorder used by the speech to text screen
 ```
 
-## 🤖 Default Models
+## How the SDK is wired up
 
-The app comes preconfigured with these models:
+`App.tsx` initializes the SDK once, then registers backends:
 
-| Model | Modality | Size | Source |
-|-------|----------|------|--------|
-| LiquidAI LFM2 350M Q8_0 | LLM (text generation) | ~400MB | HuggingFace |
-| SmolLM2 360M Q8_0 | LLM (alternative) | ~500MB | HuggingFace |
-| SmolVLM 500M Instruct | VLM (image understanding) | ~600MB | RunAnywhere |
-| Sherpa ONNX Whisper Tiny EN | STT (speech recognition) | ~80MB | RunAnywhere |
-| Piper TTS (US English) | TTS (voice synthesis) | ~100MB | RunAnywhere |
-| Silero VAD | VAD (voice activity detection) | ~2MB | Silero |
-
-## 🎨 Customization
-
-### Using Different Models
-
-You can modify `src/services/ModelService.tsx` to use different models:
-
-```typescript
-// LLM Model - Example with a larger model
-await LlamaCpp.addModel({
-  id: 'qwen2-1.5b-q4',
-  name: 'Qwen2 1.5B Q4',
-  url: 'https://huggingface.co/...',
-  memoryRequirement: 1500000000,
+```ts
+await RunAnywhere.initialize({
+  environment: SDKEnvironment.SDK_ENVIRONMENT_DEVELOPMENT,
 });
 
-// STT Model - Example with multilingual support
-await Onnx.addModel({
-  id: 'whisper-small-multi',
-  name: 'Whisper Small Multilingual',
-  url: 'https://...',
-  modality: ModelCategory.speechRecognition,
+const { LlamaCPP } = await import('@runanywhere/llamacpp');
+const { ONNX } = await import('@runanywhere/onnx');
+LlamaCPP.register();
+ONNX.register();
+```
+
+MLX (Apple, physical iOS devices only) and QHexRT (Qualcomm Hexagon NPU) are registered the
+same way but tolerate failure: `register()` resolves to `false` where the backend cannot
+run, so the calls are safe on every platform.
+
+`registerDefaultModels()` in `src/services/ModelService.tsx` then puts the catalog entries
+into the SDK registry. Registration records metadata only. Downloading and loading happen
+when a screen asks for a model, through `RunAnywhere.models.download` and
+`RunAnywhere.models.load`.
+
+### Streaming: manual iteration, not `for await`
+
+Hermes does not support `for await...of` over the SDK's NitroModules async iterables. Every
+stream in this app is drained with an explicit iterator loop instead:
+
+```ts
+const iterator = RunAnywhere.llm
+  .generateStream(text, { maxOutputTokens: 256, temperature: 0.8 })
+  [Symbol.asyncIterator]();
+
+for (;;) {
+  const step = await iterator.next();
+  if (step.done) break;
+  const event = step.value;
+  if (event.type === 'token') {
+    // append event.text
+  }
+}
+```
+
+Calling `iterator.return()` cancels the native generation. That is what the stop buttons do
+in the chat and vision screens.
+
+## Models
+
+`registerDefaultModels()` registers the entries below. The size column is the declared
+memory requirement, not the exact download size.
+
+| Id | Kind | Backend | Size |
+|----|------|---------|------|
+| `qwen3.5-0.8b-q4_k_m` | LLM, the default | llama.cpp | 533 MB |
+| `lfm2.5-230m-q4_k_m` | LLM, alternative | llama.cpp | 186 MB |
+| `smolvlm-500m-instruct-q8_0` | VLM, the default | llama.cpp | 600 MB |
+| `lfm2.5-vl-3b-q4_k_m` | VLM | llama.cpp | 2.3 GB |
+| `mlx-lfm2.5-vl-3b-4bit` | VLM, registered on iOS only | MLX | 2.6 GB |
+| `sherpa-onnx-whisper-tiny.en` | STT | Sherpa | 75 MB |
+| `vits-piper-en_US-lessac-medium` | TTS | Sherpa | 65 MB |
+| `silero-vad` | VAD, used by the voice pipeline | ONNX | 2 MB |
+
+`MODEL_IDS` at the top of `ModelService.tsx` decides which of these the screens actually
+use. Every loader screen names the model it is about to fetch and who published it, so
+nothing downloads without saying what it is.
+
+To add your own model, copy one of the existing `RunAnywhere.models.register` calls:
+
+```ts
+import { InferenceFramework } from '@runanywhere/proto-ts/model_types';
+
+await RunAnywhere.models.register({
+  id: 'my-model-q4_k_m',
+  name: 'My Model Q4_K_M',
+  url: 'https://huggingface.co/<repo>/resolve/main/<file>.gguf',
+  framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
+  memoryRequirementBytes: 1_500_000_000,
 });
 ```
 
-### Theming
+Use `archiveUrl` instead of `url` for a `.tar.gz` bundle, or `files: [...]` for a multi-file
+model such as a GGUF paired with its mmproj vision projector. Non-LLM models also need a
+`category`, for example `ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION`.
 
-The app uses a custom dark theme defined in `src/theme/colors.ts`. You can customize:
+## SDK packages
 
-```typescript
-export const AppColors = {
-  primaryDark: '#0A0E1A',
-  accentCyan: '#00D9FF',
-  accentViolet: '#8B5CF6',
-  // ... more colors
-};
-```
+| Package | Role |
+|---------|------|
+| `@runanywhere/core` | SDK lifecycle and every capability API |
+| `@runanywhere/proto-ts` | generated protobuf types (`ModelCategory`, `InferenceFramework`, `ToolDefinition`) |
+| `@runanywhere/llamacpp` | GGUF LLM and VLM inference |
+| `@runanywhere/onnx` | Sherpa ONNX speech: STT, TTS, VAD |
+| `@runanywhere/mlx` | Apple MLX, physical iOS devices |
+| `@runanywhere/qhexrt` | Qualcomm Hexagon NPU, Android arm64 only |
 
-## 🔒 Privacy
+All six are pinned to the same version. The SDK bridges to its C++ core through
+NitroModules, a JSI HybridObject, so `react-native-nitro-modules` is a required peer
+dependency.
 
-All AI processing happens **on-device**. No data is sent to external servers. The models are downloaded once and stored locally on the device.
+## Platform notes
 
-- ✅ No internet required after model download
-- ✅ All inference runs locally
-- ✅ Your conversations never leave your device
-- ✅ No API keys or cloud services needed
+### iOS builds against the old architecture
 
-## 🐛 Troubleshooting
+`ios/Podfile` passes `new_arch_enabled => false` and its post-install hook strips
+`RCT_NEW_ARCH_ENABLED` from the pod targets. Android runs the opposite way, with
+`newArchEnabled=true` in `android/gradle.properties`. The asymmetry is deliberate:
+`react-native-screens` crashes under the new architecture on RN 0.83's iOS side.
 
-### Android NDK build fails: `'rac/rac_defaults_generated.h' file not found`
+Three consequences worth knowing before you edit navigation code:
 
-**Known upstream defect in `@runanywhere/core@0.20.18`. iOS is unaffected.**
+- `metro.config.js` redirects every `react-native-screens` import on iOS to
+  `src/react-native-screens-mock.js`, which swaps the native screen components for plain
+  views.
+- `App.tsx` uses `@react-navigation/stack` with JS animations rather than native-stack.
+- `react-native.config.js` also disables `react-native-sound` on iOS.
 
-An Android build (`yarn android`, or `cd android && ./gradlew assembleDebug`) fails
-at the NDK compile step with:
+### Pods must be installed by hand
 
-```
-rac_llm_types.h:27:10: fatal error: 'rac/rac_defaults_generated.h' file not found
-```
+`react-native.config.js` sets `automaticPodsInstallation: false`, so `yarn ios` will build
+whatever pods are already installed rather than refreshing them. Run `pod install` yourself
+after `yarn install` and after any dependency change, or the build links against a stale
+Pods tree.
 
-**Cause.** The published npm tarball ships the Android C headers under
-`android/src/main/jniLibs/include/rac/`, and five of them
-(`rac_{llm,stt,tts,vad,vlm}_types.h`) `#include "rac/rac_defaults_generated.h"`.
-That generated header is missing from the Android header set. It is present in
-the iOS slice (inside `RACommons.xcframework/*/Headers/rac/`), which is why only
-Android breaks.
+### Audio capture is owned by the app, not the SDK
 
-**Status.** A fix is merged in the `runanywhere-sdks` monorepo but has not been
-republished to npm yet. There is no supported local workaround: the missing file
-is generated from the IDL and must match the prebuilt `.so` ABI exactly, so
-hand-writing it risks silent runtime mismatch rather than a clean compile error.
+For the speech to text screen the app records its own audio: `NativeAudioModule` (Swift on
+iOS, Kotlin on Android) writes 16 kHz mono WAV and hands the bytes to
+`RunAnywhere.stt.transcribe`. The voice pipeline screen works differently.
+`RunAnywhere.voice.createSession` opens the microphone, segments utterances and plays the
+replies itself, and the screen only renders the event stream.
 
-**What to do.** Build and run the iOS target until a release later than 0.20.18
-is published, then bump `@runanywhere/*` to it. Do not pin back to 0.20.17 to
-dodge this; other parts of this app target the 0.20.18 API surface.
+### Permissions
 
-### "Could not connect to development server" (Android)
-This happens on physical Android devices because they can't reach `localhost` on your computer.
+iOS declares `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription` in
+`ios/RunAnywhereStarter/Info.plist`. Android declares `INTERNET` and `RECORD_AUDIO` in
+`android/app/src/main/AndroidManifest.xml`, and the speech to text screen requests
+`RECORD_AUDIO` at runtime.
 
-```bash
-# Set up port forwarding
-adb reverse tcp:8081 tcp:8081
+## Troubleshooting
 
-# Verify Metro is running
-curl http://localhost:8081/status  # Should return "packager-status:running"
-```
+A model will not download. Check connectivity and free space. The 3B vision models are over
+two gigabytes each. Progress comes straight from the SDK, so a frozen bar usually means a
+stalled request rather than a stuck UI.
 
-### CMake Error: "add_subdirectory given source which is not an existing directory"
-This happens when codegen hasn't run yet. Simply run the build again:
+The microphone does nothing. Grant the permission and restart the app. On iOS the decision
+is cached per install.
 
-```bash
-cd android && ./gradlew assembleDebug
-```
+Generation is slow. Pick the smallest model that does the job, close other apps, and run on
+a physical device rather than a simulator.
 
-The second run will succeed as codegen completes.
+Android SDK location not found. Create `android/local.properties` containing
+`sdk.dir=/path/to/Android/sdk`. Android Studio writes it on first open.
 
-### Models not downloading
-- Check your internet connection
-- Ensure sufficient storage space (models can be 100MB-1GB)
-- Check iOS/Android permissions
-- Clear app data and try again
+NDK not found. `ls $ANDROID_HOME/ndk/` should list `28.0.13004108`. Install it from Android
+Studio's SDK Manager under SDK Tools, or with `sdkmanager "ndk;28.0.13004108"`.
 
-### Microphone not working
-- Grant microphone permission in device settings
-- Restart the app after granting permission
-- On Android, check if permission is granted in AndroidManifest.xml
+Clean rebuild. `rm -rf node_modules && yarn install`, then `cd android && ./gradlew clean`
+or `cd ios && rm -rf Pods Podfile.lock && pod install`.
 
-### Low performance
-- Smaller models (like SmolLM2 360M) work better on mobile devices
-- Close other apps to free up memory
-- Use quantized models (Q4/Q8) for better performance
-- Ensure you're running on a physical device (simulators are slow)
+## The other apps
 
-### Build errors
-- Clear cache: `cd android && ./gradlew clean` or `cd ios && rm -rf Pods Podfile.lock`
-- Reinstall dependencies: `rm -rf node_modules && yarn install`
-- For iOS: `cd ios && pod install --repo-update`
-- For Android: Delete `android/app/build` and `android/.gradle` folders, then rebuild
+| Platform | Repo |
+| --- | --- |
+| Flutter | [flutter-starter-example](https://github.com/RunanywhereAI/flutter-starter-example) |
+| iOS and macOS | [runanywhere-ios](https://github.com/RunanywhereAI/runanywhere-ios) |
+| Android | [runanywhere-android](https://github.com/RunanywhereAI/runanywhere-android) |
+| Web | [runanywhere-web](https://github.com/RunanywhereAI/runanywhere-web) |
+| Windows | [runanywhere-electron](https://github.com/RunanywhereAI/runanywhere-electron) |
+| SDK monorepo | [runanywhere-sdks](https://github.com/RunanywhereAI/runanywhere-sdks) |
 
-### Android NDK not found
-If you see errors about NDK not found:
-```bash
-# Check if NDK 27 is installed
-ls ~/Library/Android/sdk/ndk/
+## Support
 
-# If missing, install via Android Studio SDK Manager or:
-sdkmanager "ndk;27.1.12297006"
-```
+- Issues: https://github.com/RunanywhereAI/runanywhere-sdks/issues
+- Documentation: https://docs.runanywhere.ai
+- Email: san@runanywhere.ai
 
-### Android SDK location not found
-Ensure `local.properties` exists in the `android/` folder with your SDK path:
-```properties
-sdk.dir=/Users/<username>/Library/Android/sdk
-```
-This file is auto-generated when you open the project in Android Studio.
+## License
 
-### Patches not applied
-If you see build errors related to `react-native-nitro-modules`, ensure patches are applied:
-
-```bash
-npx patch-package
-```
-
-This should run automatically via `postinstall`, but you can run it manually if needed.
-
-## 📚 Documentation
-
-- [RunAnywhere SDK Documentation](https://docs.runanywhere.ai)
-- [React Native Documentation](https://reactnative.dev)
-- [API Reference](https://docs.runanywhere.ai/api)
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-## 📄 License
-
-This starter app is provided under the MIT License. The RunAnywhere SDK is licensed under the [RunAnywhere License](https://runanywhere.ai/license).
-
-For commercial licensing inquiries, contact: san@runanywhere.ai
-
-## 🆘 Support
-
-- **GitHub Issues**: [Report bugs](https://github.com/RunanywhereAI/runanywhere-sdks/issues)
-- **Email**: san@runanywhere.ai
-- **Documentation**: [runanywhere.ai](https://runanywhere.ai)
-- **Discord**: [Join our community](https://discord.gg/runanywhere)
-
-## 🎯 Next Steps
-
-1. **Explore the code**: Check out each screen to understand how the SDK works
-2. **Try different models**: Swap in your own models to see what works best
-3. **Build your app**: Use this as a foundation for your own AI-powered app
-4. **Share feedback**: Let us know what you think and what features you'd like to see
-
-## ⭐ Acknowledgments
-
-Built with:
-- [React Native](https://reactnative.dev)
-- [React Navigation](https://reactnavigation.org)
-- [React Native Reanimated](https://docs.swmansion.com/react-native-reanimated)
-- [React Native Linear Gradient](https://github.com/react-native-linear-gradient/react-native-linear-gradient)
-
-Special thanks to the open-source community and the RunAnywhere team!
-
----
-
-Made with ❤️ by the RunAnywhere team
+The starter app is MIT licensed. The RunAnywhere SDK is licensed separately, see
+https://runanywhere.ai/license. For commercial licensing, contact san@runanywhere.ai.

@@ -14,7 +14,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { generateWithTools } from '@runanywhere/core';
 import type { ToolCallingResult } from '@runanywhere/core';
 import { AppColors } from '../theme';
-import { useModelService } from '../services/ModelService';
+import { useModelService, MODEL_CREDITS } from '../services/ModelService';
 import { ModelLoaderWidget } from '../components';
 import { DEMO_TOOLS, registerDemoTools } from '../utils/chatSampleTools';
 
@@ -138,6 +138,7 @@ export const ToolCallingScreen: React.FC = () => {
   if (!modelService.isLLMLoaded) {
     return (
       <ModelLoaderWidget
+        modelCredit={MODEL_CREDITS.llm}
         title="LLM Model Required"
         subtitle="Download and load a language model to test tool calling"
         icon="tools"

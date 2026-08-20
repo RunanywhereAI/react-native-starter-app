@@ -13,7 +13,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { RunAnywhere } from '@runanywhere/core';
 import type { GenerationEvent, GenerationResult } from '@runanywhere/core';
 import { AppColors } from '../theme';
-import { useModelService } from '../services/ModelService';
+import { useModelService, MODEL_CREDITS } from '../services/ModelService';
 import { ChatMessageBubble, ChatMessage, ModelLoaderWidget } from '../components';
 
 export const ChatScreen: React.FC = () => {
@@ -144,6 +144,7 @@ export const ChatScreen: React.FC = () => {
   if (!modelService.isLLMLoaded) {
     return (
       <ModelLoaderWidget
+        modelCredit={MODEL_CREDITS.llm}
         title="LLM Model Required"
         subtitle="Download and load the language model to start chatting"
         icon="chat"

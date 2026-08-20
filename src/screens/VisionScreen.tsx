@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import * as RNFS from 'react-native-fs';
 import { AppColors } from '../theme';
-import { useModelService } from '../services/ModelService';
+import { useModelService, MODEL_CREDITS } from '../services/ModelService';
 import { ModelLoaderWidget } from '../components';
 import { VLMService } from '../services/VLMService';
 
@@ -103,6 +103,7 @@ export const VisionScreen: React.FC = () => {
   if (!modelService.isVLMLoaded) {
     return (
       <ModelLoaderWidget
+        modelCredit={MODEL_CREDITS.vlm}
         title="Vision Model Required"
         subtitle="Download and load the vision-language model to describe images"
         icon="vision"
