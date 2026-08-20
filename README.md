@@ -1,10 +1,25 @@
-# RunAnywhere React Native starter app
+# RunAnywhere AI for React Native
 
-A React Native app that exercises the RunAnywhere on-device AI SDK: chat, vision, tool
-calling, speech to text, text to speech, and a voice agent. Inference runs locally through
-the SDK's C++ core, so apart from downloading model files there is no server involved.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/RunanywhereAI/runanywhere-sdks/main/docs/logo.svg" alt="RunAnywhere" width="120"/>
+</p>
 
-The app pins every `@runanywhere/*` package to 0.20.19.
+<p align="center">
+  <img src="https://img.shields.io/badge/React%20Native-0.85-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React Native 0.85" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/iOS-17.5%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="iOS 17.5+" />
+  <img src="https://img.shields.io/badge/Android-arm64-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android arm64" />
+  <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT" />
+</p>
+
+A starter app for the RunAnywhere on-device AI SDK, written in TypeScript.
+
+Six screens, one per feature: chat, vision, tool calling, speech to text, text to speech,
+and a voice agent. Inference runs locally through the SDK's C++ core, so apart from
+downloading the model files there is no server involved. Copy a screen, point it at your own
+model, and you have the shape of a real app.
+
+Every `@runanywhere/*` package is pinned to 0.20.19.
 
 ## What it demonstrates
 
@@ -160,8 +175,8 @@ memory requirement, not the exact download size.
 
 | Id | Kind | Backend | Size |
 |----|------|---------|------|
-| `lfm2-350m-q8_0` | LLM, the default | llama.cpp | 400 MB |
-| `smollm2-360m-q8_0` | LLM, alternative | llama.cpp | 500 MB |
+| `qwen3.5-0.8b-q4_k_m` | LLM, the default | llama.cpp | 533 MB |
+| `lfm2.5-230m-q4_k_m` | LLM, alternative | llama.cpp | 186 MB |
 | `smolvlm-500m-instruct-q8_0` | VLM, the default | llama.cpp | 600 MB |
 | `lfm2.5-vl-3b-q4_k_m` | VLM | llama.cpp | 2.3 GB |
 | `mlx-lfm2.5-vl-3b-4bit` | VLM, registered on iOS only | MLX | 2.6 GB |
@@ -170,7 +185,8 @@ memory requirement, not the exact download size.
 | `silero-vad` | VAD, used by the voice pipeline | ONNX | 2 MB |
 
 `MODEL_IDS` at the top of `ModelService.tsx` decides which of these the screens actually
-use.
+use. Every loader screen names the model it is about to fetch and who published it, so
+nothing downloads without saying what it is.
 
 To add your own model, copy one of the existing `RunAnywhere.models.register` calls:
 
@@ -264,6 +280,17 @@ Studio's SDK Manager under SDK Tools, or with `sdkmanager "ndk;28.0.13004108"`.
 
 Clean rebuild. `rm -rf node_modules && yarn install`, then `cd android && ./gradlew clean`
 or `cd ios && rm -rf Pods Podfile.lock && pod install`.
+
+## The other apps
+
+| Platform | Repo |
+| --- | --- |
+| Flutter | [flutter-starter-example](https://github.com/RunanywhereAI/flutter-starter-example) |
+| iOS and macOS | [runanywhere-ios](https://github.com/RunanywhereAI/runanywhere-ios) |
+| Android | [runanywhere-android](https://github.com/RunanywhereAI/runanywhere-android) |
+| Web | [runanywhere-web](https://github.com/RunanywhereAI/runanywhere-web) |
+| Windows | [runanywhere-electron](https://github.com/RunanywhereAI/runanywhere-electron) |
+| SDK monorepo | [runanywhere-sdks](https://github.com/RunanywhereAI/runanywhere-sdks) |
 
 ## Support
 
